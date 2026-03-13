@@ -158,7 +158,7 @@ export function exportStyledPdf(spec: ExportSpec) {
       if (item.bullet) {
         doc.text("•", lineXBase, cursorY);
       }
-      item.lines.forEach((line, idx) => {
+      item.lines.forEach((line: string, idx: number) => {
         doc.text(line, lineXBase + (item.bullet ? 8 : 0), cursorY + idx * 13);
       });
       cursorY += item.lines.length * 13 + 2;

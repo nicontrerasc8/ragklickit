@@ -559,20 +559,7 @@ function parseAlcanceCalendarioJson(raw: string) {
 }
 
 function applyAlcanceToWeeks(
-  weeks: Array<{
-    semana: string;
-    objetivo: string;
-    piezas: Array<{
-      fecha: string;
-      canal: string;
-      formato: string;
-      tema: string;
-      objetivo: string;
-      cta: string;
-      responsable: string;
-      estado: string;
-    }>;
-  }>,
+  weeks: CalendarWeek[],
   alcance: Record<string, number>,
 ) {
   const channels = Object.keys(alcance);
@@ -587,16 +574,7 @@ function applyAlcanceToWeeks(
       channel,
       normalized.flatMap((week) => week.piezas.filter((piece) => eq(piece.canal, channel))),
     ]),
-  ) as Record<string, Array<{
-    fecha: string;
-    canal: string;
-    formato: string;
-    tema: string;
-    objetivo: string;
-    cta: string;
-    responsable: string;
-    estado: string;
-  }>>;
+  ) as Record<string, CalendarWeekPiece[]>;
 
   for (const week of normalized) {
     week.piezas = [];
@@ -627,7 +605,7 @@ function applyAlcanceToWeeks(
 
 function buildCalendarWeeksFromPlanContent(
   planContent: Record<string, unknown>,
-) {
+): CalendarWeek[] {
   const rawSemanas = Array.isArray(planContent.semanas)
     ? (planContent.semanas as Record<string, unknown>[])
     : [];
@@ -635,7 +613,7 @@ function buildCalendarWeeksFromPlanContent(
   return rawSemanas
     .map((rawSemana, weekIdx) => {
       const semanaRaw = rawSemana.semana;
-      const semana =
+      const semana: CalendarWeekKey =
         semanaRaw === "S2" || semanaRaw === "S3" || semanaRaw === "S4"
           ? semanaRaw
           : "S1";
@@ -677,22 +655,9 @@ function buildCalendarWeeksFromPlanContent(
 }
 
 function assignCalendarDatesByMonth(
-  weeks: Array<{
-    semana: string;
-    objetivo: string;
-    piezas: Array<{
-      fecha: string;
-      canal: string;
-      formato: string;
-      tema: string;
-      objetivo: string;
-      cta: string;
-      responsable: string;
-      estado: string;
-    }>;
-  }>,
+  weeks: CalendarWeek[],
   periodo: string,
-) {
+): CalendarWeek[] {
   const match = periodo.match(/^(\d{4})-(\d{2})/);
   if (!match) return weeks;
   const year = Number.parseInt(match[1], 10);
@@ -702,7 +667,7 @@ function assignCalendarDatesByMonth(
   }
 
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const ranges: Record<string, [number, number]> = {
+  const ranges: Record<CalendarWeekKey, [number, number]> = {
     S1: [1, Math.min(7, lastDay)],
     S2: [8, Math.min(14, lastDay)],
     S3: [15, Math.min(21, lastDay)],
@@ -736,6 +701,25 @@ const CALENDAR_CHANNELS = [
   "Instagram",
   "Marketing Email",
 ] as const;
+
+type CalendarWeekKey = "S1" | "S2" | "S3" | "S4";
+
+type CalendarWeekPiece = {
+  fecha: string;
+  canal: string;
+  formato: string;
+  tema: string;
+  objetivo: string;
+  cta: string;
+  responsable: string;
+  estado: string;
+};
+
+type CalendarWeek = {
+  semana: CalendarWeekKey;
+  objetivo: string;
+  piezas: CalendarWeekPiece[];
+};
 
 type CalendarChannel = (typeof CALENDAR_CHANNELS)[number];
 
@@ -1030,15 +1014,15 @@ function buildCalendarFromPlanTrabajo(params: {
 function calendarItemsToWeeks(
   items: Array<Record<string, unknown>>,
   periodo: string,
-) {
-  const weekMap = new Map<string, Array<Record<string, unknown>>>();
+): CalendarWeek[] {
+  const weekMap = new Map<CalendarWeekKey, Array<Record<string, unknown>>>();
   for (const item of items) {
     const weekNumRaw = item.semana;
     const weekNum =
       typeof weekNumRaw === "number"
         ? weekNumRaw
         : Number.parseInt(String(weekNumRaw ?? ""), 10);
-    const weekKey =
+    const weekKey: CalendarWeekKey =
       weekNum === 2 ? "S2" : weekNum === 3 ? "S3" : weekNum === 4 ? "S4" : "S1";
     const list = weekMap.get(weekKey) ?? [];
     list.push(item);

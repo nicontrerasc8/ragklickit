@@ -259,7 +259,8 @@ export function calendarItemsToWeeks(items: CalendarioItem[]) {
     byWeek.set(week, group);
   });
 
-  const weekLabel = (week: number) => (week === 2 ? "S2" : week === 3 ? "S3" : week === 4 ? "S4" : "S1");
+  const weekLabel = (week: number): "S1" | "S2" | "S3" | "S4" =>
+    week === 2 ? "S2" : week === 3 ? "S3" : week === 4 ? "S4" : "S1";
 
   return ([1, 2, 3, 4] as const).map((week) => ({
     semana: weekLabel(week),

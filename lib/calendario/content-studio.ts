@@ -179,7 +179,9 @@ export async function generateCalendarioItemBundle(params: {
     blog_body_markdown:
       isLongform && typeof parsed.blog_body_markdown === "string" ? parsed.blog_body_markdown : "",
     cta: typeof parsed.cta === "string" && parsed.cta.trim() ? parsed.cta : item.CTA,
-    hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.filter((tag): tag is string => typeof tag === "string") : [],
+    hashtags: Array.isArray(parsed.hashtags)
+      ? (parsed.hashtags.filter((tag) => typeof tag === "string") as string[])
+      : [],
     visual_direction: typeof parsed.visual_direction === "string" ? parsed.visual_direction : "",
     image_prompt_base: basePrompt,
     image_count: imageCount,
