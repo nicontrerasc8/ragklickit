@@ -1,10 +1,10 @@
-import { DeployButton } from "@/components/deploy-button";
 import { EnvVarWarning } from "@/components/env-var-warning";
 import { AuthButton } from "@/components/auth-button";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { hasEnvVars } from "@/lib/utils";
 import Link from "next/link";
 import { Suspense } from "react";
+import { Building2, LayoutGrid, Sparkles } from "lucide-react";
 
 export default function ProtectedLayout({
   children,
@@ -12,16 +12,41 @@ export default function ProtectedLayout({
   children: React.ReactNode;
 }) {
   return (
-    <main className="min-h-screen flex flex-col items-center">
-      <div className="flex-1 w-full flex flex-col gap-20 items-center">
-        <nav className="w-full flex justify-center border-b border-b-foreground/10 h-16">
-          <div className="w-full max-w-5xl flex justify-between items-center p-3 px-5 text-sm">
-            <div className="flex gap-6 items-center font-semibold">
-              <Link href={"/protected"}>RAG Klickit</Link>
-              
+    <main className="min-h-screen w-full bg-[radial-gradient(circle_at_top,hsl(var(--muted))_0%,transparent_38%),linear-gradient(to_bottom,hsl(var(--background)),hsl(var(--background)))]">
+      <div className="flex min-h-screen w-full flex-col">
+        <header className="sticky top-0 z-40 border-b border-b-foreground/10 bg-background/85 backdrop-blur">
+          <nav className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 text-sm sm:px-6">
+            <div className="flex items-center gap-6">
+              <Link href="/protected" className="flex items-center gap-3 font-semibold tracking-tight">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-foreground text-background">
+                  <Sparkles size={16} />
+                </span>
+                <span className="flex flex-col leading-none">
+                  <span>Ragklickit</span>
+                  <span className="text-[11px] font-medium text-muted-foreground">Operacion de agencia</span>
+                </span>
+              </Link>
+
+              <div className="hidden items-center gap-2 md:flex">
+                <Link
+                  href="/protected"
+                  className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <LayoutGrid size={13} />
+                  Dashboard
+                </Link>
+                <Link
+                  href="/protected/empresas"
+                  className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <Building2 size={13} />
+                  Empresas
+                </Link>
+              </div>
             </div>
-            <div className="flex items-center gap-4">
-           
+
+            <div className="flex items-center gap-2">
+              <ThemeSwitcher />
               {!hasEnvVars ? (
                 <EnvVarWarning />
               ) : (
@@ -30,25 +55,18 @@ export default function ProtectedLayout({
                 </Suspense>
               )}
             </div>
-          </div>
-        </nav>
-        <div className="flex-1 flex flex-col gap-20 max-w-5xl p-5">
-          {children}
+          </nav>
+        </header>
+
+        <div className="flex-1 px-4 py-6 sm:px-6">
+          <div className="mx-auto w-full max-w-6xl">{children}</div>
         </div>
 
-        <footer className="w-full flex items-center justify-center border-t mx-auto text-center text-xs gap-8 py-16">
-          <p>
-            Powered by{" "}
-            <a
-              href="https://supabase.com/?utm_source=create-next-app&utm_medium=template&utm_term=nextjs"
-              target="_blank"
-              className="font-bold hover:underline"
-              rel="noreferrer"
-            >
-              Supabase
-            </a>
-          </p>
-          <ThemeSwitcher />
+        <footer className="border-t border-t-foreground/10">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-5 text-xs text-muted-foreground sm:px-6">
+            <p>Ragklickit</p>
+            <p>Workspace interno para briefs, BEC y planes de trabajo</p>
+          </div>
         </footer>
       </div>
     </main>

@@ -11,6 +11,14 @@ import {
   makeDefaultBriefForm,
 } from "@/lib/brief/schema";
 import { ollamaChat } from "@/lib/ollama/client";
+import {
+  makeDefaultPlanTrabajo,
+  normalizePlanTrabajoContent,
+} from "@/lib/plan-trabajo/schema";
+import {
+  makeDefaultCalendarioContent,
+  normalizeCalendarioContent,
+} from "@/lib/calendario/schema";
 import { createClient } from "@/lib/supabase/server";
 
 const ALLOWED_PROMPT_TYPES = [
@@ -185,6 +193,52 @@ function extractPdfText(bytes: Uint8Array) {
     .map((m) => m.slice(1, -1))
     .filter((t) => /[A-Za-zÃÃ‰ÃÃ“ÃšÃ¡Ã©Ã­Ã³ÃºÃ‘Ã±0-9]/.test(t));
   return pieces.join(" ").replace(/\s+/g, " ").trim();
+}
+
+async function extractSupportedDocumentText(uploadedFile: File) {
+  const fileName = uploadedFile.name || "documento";
+  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
+  const supportedExtensions = new Set([
+    "txt",
+    "md",
+    "csv",
+    "json",
+    "html",
+    "xml",
+    "pdf",
+    "docx",
+    "xlsx",
+  ]);
+
+  if (!supportedExtensions.has(extension)) {
+    throw new Error(
+      "Formato no soportado para lectura automatica. Usa txt, md, csv, json, html, xml, pdf, docx o xlsx.",
+    );
+  }
+
+  const bytes = new Uint8Array(await uploadedFile.arrayBuffer());
+  let rawText = "";
+
+  if (["txt", "md", "csv", "json", "html", "xml"].includes(extension)) {
+    rawText = decodeUtf8(bytes).trim();
+  } else if (extension === "docx") {
+    rawText = extractDocxText(bytes);
+  } else if (extension === "xlsx") {
+    rawText = extractXlsxText(bytes);
+  } else if (extension === "pdf") {
+    rawText = extractPdfText(bytes);
+  }
+
+  rawText = rawText.trim();
+  if (!rawText) {
+    throw new Error("No se pudo extraer texto del archivo. Puedes probar con otro PDF o pegar el contenido como documento.");
+  }
+
+  return {
+    fileName,
+    extension,
+    rawText,
+  };
 }
 
 async function maybeTranslateWithOllama(text: string) {
@@ -364,7 +418,7 @@ async function upsertPlanTrabajoArtifact(params: {
       .from("rag_artifacts")
       .update({
         content_json: contenidoJson,
-        status: "draft",
+        status: "plan",
         version: (existing.version ?? 1) + 1,
         inputs_json: { brief_id: briefId, periodo },
         updated_at: new Date().toISOString(),
@@ -382,7 +436,7 @@ async function upsertPlanTrabajoArtifact(params: {
     agencia_id: agenciaId,
     empresa_id: empresaId,
     title,
-    status: "draft",
+    status: "plan",
     inputs_json: { brief_id: briefId, periodo },
     content_json: contenidoJson,
   });
@@ -398,10 +452,16 @@ async function upsertCalendarioArtifact(params: {
   planArtifactId: string;
   periodo: string;
   contenidoJson: unknown;
+  alcanceCalendario?: Record<string, number>;
 }) {
-  const { empresaId, agenciaId, planArtifactId, periodo, contenidoJson } = params;
+  const { empresaId, agenciaId, planArtifactId, periodo, contenidoJson, alcanceCalendario } =
+    params;
   const supabase = await requireUser();
   const title = `Calendario ${periodo}`;
+  const inputsPayload =
+    alcanceCalendario && Object.keys(alcanceCalendario).length > 0
+      ? { plan_artifact_id: planArtifactId, periodo, alcance_calendario: alcanceCalendario }
+      : { plan_artifact_id: planArtifactId, periodo };
 
   const { data: existing, error: existingError } = await supabase
     .from("rag_artifacts")
@@ -421,9 +481,9 @@ async function upsertCalendarioArtifact(params: {
       .from("rag_artifacts")
       .update({
         content_json: contenidoJson,
-        status: "draft",
+        status: "plan",
         version: (existing.version ?? 1) + 1,
-        inputs_json: { plan_artifact_id: planArtifactId, periodo },
+        inputs_json: inputsPayload,
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
@@ -439,14 +499,575 @@ async function upsertCalendarioArtifact(params: {
     agencia_id: agenciaId,
     empresa_id: empresaId,
     title,
-    status: "draft",
-    inputs_json: { plan_artifact_id: planArtifactId, periodo },
+    status: "plan",
+    inputs_json: inputsPayload,
     content_json: contenidoJson,
   });
 
   if (insertError) {
     throw new Error(`No se pudo crear calendario: ${insertError.message}`);
   }
+}
+
+function parseAlcanceCalendario(raw: string) {
+  const map: Record<string, number> = {};
+  if (!raw.trim()) return map;
+
+  const chunks = raw.split(/\r?\n|[,;]+/).map((c) => c.trim()).filter(Boolean);
+  for (const chunk of chunks) {
+    const sep = chunk.indexOf(":");
+    if (sep <= 0) continue;
+    const canal = chunk.slice(0, sep).trim();
+    const valueRaw = chunk.slice(sep + 1).trim();
+    const count = Number.parseInt(valueRaw, 10);
+    if (!canal || !Number.isFinite(count) || count <= 0) continue;
+    map[canal] = Math.min(10, count);
+  }
+
+  return map;
+}
+
+function normalizeAlcanceMap(value: unknown) {
+  if (!value || typeof value !== "object") return {} as Record<string, number>;
+
+  const map: Record<string, number> = {};
+  for (const [channel, countRaw] of Object.entries(value as Record<string, unknown>)) {
+    const count =
+      typeof countRaw === "number"
+        ? countRaw
+        : Number.parseInt(String(countRaw ?? "").trim(), 10);
+    if (!channel.trim() || !Number.isFinite(count) || count <= 0) continue;
+    map[channel.trim()] = Math.min(10, Math.trunc(count));
+  }
+
+  return map;
+}
+
+function parseAlcanceCalendarioJson(raw: string) {
+  const text = raw.trim();
+  if (!text) return {} as Record<string, number>;
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && "alcance_calendario" in (parsed as Record<string, unknown>)) {
+      return normalizeAlcanceMap((parsed as Record<string, unknown>).alcance_calendario);
+    }
+    return normalizeAlcanceMap(parsed);
+  } catch {
+    return parseAlcanceCalendario(text);
+  }
+}
+
+function applyAlcanceToWeeks(
+  weeks: Array<{
+    semana: string;
+    objetivo: string;
+    piezas: Array<{
+      fecha: string;
+      canal: string;
+      formato: string;
+      tema: string;
+      objetivo: string;
+      cta: string;
+      responsable: string;
+      estado: string;
+    }>;
+  }>,
+  alcance: Record<string, number>,
+) {
+  const channels = Object.keys(alcance);
+  if (!channels.length) return weeks;
+
+  const normalized = weeks.map((w) => ({ ...w, piezas: [...w.piezas] }));
+  const eq = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  const isEmailChannel = (channel: string) => /email|mail/i.test(channel);
+
+  const sourceByChannel = Object.fromEntries(
+    channels.map((channel) => [
+      channel,
+      normalized.flatMap((week) => week.piezas.filter((piece) => eq(piece.canal, channel))),
+    ]),
+  ) as Record<string, Array<{
+    fecha: string;
+    canal: string;
+    formato: string;
+    tema: string;
+    objetivo: string;
+    cta: string;
+    responsable: string;
+    estado: string;
+  }>>;
+
+  for (const week of normalized) {
+    week.piezas = [];
+  }
+
+  channels.forEach((channel, channelIdx) => {
+    const target = Math.min(10, Math.max(0, alcance[channel] ?? 0));
+    if (target <= 0) return;
+
+    for (let i = 0; i < target; i++) {
+      const weekIdx = (i + channelIdx) % normalized.length;
+      const source = sourceByChannel[channel]?.[i];
+      normalized[weekIdx].piezas.push({
+        fecha: source?.fecha ?? "",
+        canal: channel,
+        formato: source?.formato ?? (isEmailChannel(channel) ? "Newsletter" : "Post"),
+        tema: source?.tema ?? `Contenido ${i + 1} ${channel}`,
+        objetivo: source?.objetivo ?? "Alcance y consideracion",
+        cta: source?.cta ?? "Mas informacion",
+        responsable: source?.responsable === "cliente" ? "cliente" : "agencia",
+        estado: source?.estado ?? "planificado",
+      });
+    }
+  });
+
+  return normalized;
+}
+
+function buildCalendarWeeksFromPlanContent(
+  planContent: Record<string, unknown>,
+) {
+  const rawSemanas = Array.isArray(planContent.semanas)
+    ? (planContent.semanas as Record<string, unknown>[])
+    : [];
+
+  return rawSemanas
+    .map((rawSemana, weekIdx) => {
+      const semanaRaw = rawSemana.semana;
+      const semana =
+        semanaRaw === "S2" || semanaRaw === "S3" || semanaRaw === "S4"
+          ? semanaRaw
+          : "S1";
+      const objetivo =
+        typeof rawSemana.objetivo === "string" ? rawSemana.objetivo : "";
+      const posts = Array.isArray(rawSemana.posts)
+        ? rawSemana.posts
+        : [];
+      const piezas = posts
+        .filter((post): post is string => typeof post === "string")
+        .map((post, postIdx) => {
+          const parts = post
+            .split(" - ")
+            .map((part) => part.trim())
+            .filter(Boolean);
+          const canal = parts[0] ?? "Instagram";
+          const isEmailChannel = /email|mail/i.test(canal);
+          const formato =
+            parts[1] ?? (isEmailChannel ? "Newsletter" : "Post");
+          const tema =
+            parts.slice(2).join(" - ") ||
+            `Pieza ${postIdx + 1} de semana ${weekIdx + 1}`;
+
+          return {
+            fecha: "",
+            canal,
+            formato,
+            tema,
+            objetivo: objetivo || "Alcance y consideracion",
+            cta: "Mas informacion",
+            responsable: "agencia",
+            estado: "planificado",
+          };
+        });
+
+      return { semana, objetivo, piezas };
+    })
+    .filter((week) => week.semana);
+}
+
+function assignCalendarDatesByMonth(
+  weeks: Array<{
+    semana: string;
+    objetivo: string;
+    piezas: Array<{
+      fecha: string;
+      canal: string;
+      formato: string;
+      tema: string;
+      objetivo: string;
+      cta: string;
+      responsable: string;
+      estado: string;
+    }>;
+  }>,
+  periodo: string,
+) {
+  const match = periodo.match(/^(\d{4})-(\d{2})/);
+  if (!match) return weeks;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return weeks;
+  }
+
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const ranges: Record<string, [number, number]> = {
+    S1: [1, Math.min(7, lastDay)],
+    S2: [8, Math.min(14, lastDay)],
+    S3: [15, Math.min(21, lastDay)],
+    S4: [22, lastDay],
+  };
+
+  const ym = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`;
+  return weeks.map((week) => {
+    const [startDay, endDay] = ranges[week.semana] ?? [1, lastDay];
+    const span = Math.max(1, endDay - startDay + 1);
+    const total = Math.max(1, week.piezas.length);
+    const piezas = week.piezas.map((piece, idx) => {
+      const day = Math.min(
+        endDay,
+        startDay + Math.floor((idx * span) / total),
+      );
+      const fecha = `${ym}-${String(day).padStart(2, "0")}`;
+      return { ...piece, fecha };
+    });
+    return { ...week, piezas };
+  });
+}
+
+const CALENDAR_CHANNELS = [
+  "Blog",
+  "TikTok",
+  "YouTube",
+  "Facebook",
+  "LinkedIn",
+  "WhatsApp",
+  "Instagram",
+  "Marketing Email",
+] as const;
+
+type CalendarChannel = (typeof CALENDAR_CHANNELS)[number];
+
+function toCalendarChannel(value: string): CalendarChannel | null {
+  const found = CALENDAR_CHANNELS.find((channel) => channel === value);
+  return found ?? null;
+}
+
+function distributeByPilar(
+  pilares: Array<{ pilar: string; porcentaje: number; objetivo: string; formatos: string[] }>,
+  totalPieces: number,
+) {
+  if (!pilares.length || totalPieces <= 0) return [] as Array<{
+    pilar: string;
+    porcentaje: number;
+    objetivo: string;
+    formatos: string[];
+    cantidad: number;
+  }>;
+
+  const base = pilares.map((p) => {
+    const exact = (p.porcentaje / 100) * totalPieces;
+    return {
+      ...p,
+      exacto: exact,
+      cantidad: Math.floor(exact),
+    };
+  });
+
+  const assigned = base.reduce((acc, p) => acc + p.cantidad, 0);
+  let remaining = totalPieces - assigned;
+
+  const remainderOrder = [...base].sort(
+    (a, b) => b.exacto - b.cantidad - (a.exacto - a.cantidad),
+  );
+  let idx = 0;
+  while (remaining > 0 && remainderOrder.length > 0) {
+    const target = remainderOrder[idx % remainderOrder.length];
+    const original = base.find((item) => item.pilar === target.pilar);
+    if (original) original.cantidad += 1;
+    remaining -= 1;
+    idx += 1;
+  }
+
+  return base.map((item) => ({
+    pilar: item.pilar,
+    porcentaje: item.porcentaje,
+    objetivo: item.objetivo,
+    formatos: item.formatos,
+    cantidad: item.cantidad,
+  }));
+}
+
+function expandPilarPool(
+  pilares: Array<{ pilar: string; porcentaje: number; objetivo: string; formatos: string[]; cantidad: number }>,
+) {
+  const pool: Array<{ pilar: string; porcentaje: number; objetivo: string; formatos: string[] }> =
+    [];
+  for (const p of pilares) {
+    for (let i = 0; i < p.cantidad; i += 1) {
+      pool.push({
+        pilar: p.pilar,
+        porcentaje: p.porcentaje,
+        objetivo: p.objetivo,
+        formatos: p.formatos,
+      });
+    }
+  }
+  return pool;
+}
+
+function weekFromChannelIndex(indexInsideChannel: number, totalChannel: number) {
+  if (totalChannel <= 1) return 1;
+  const ratio = indexInsideChannel / totalChannel;
+  if (ratio < 0.25) return 1;
+  if (ratio < 0.5) return 2;
+  if (ratio < 0.75) return 3;
+  return 4;
+}
+
+function pickFormatForChannel(
+  channel: CalendarChannel,
+  pilarFormats: string[],
+  index: number,
+) {
+  const defaults: Record<CalendarChannel, string[]> = {
+    Blog: ["Articulo SEO"],
+    TikTok: ["Video corto", "UGC-style", "Tip rapido"],
+    YouTube: ["Video educativo", "Demo", "Caso de estudio"],
+    Facebook: ["Post estatico", "Carrusel", "Video corto"],
+    LinkedIn: ["Post experto", "Carrusel", "Documento", "Video"],
+    WhatsApp: ["Mensaje directo", "Seguimiento", "Invitacion"],
+    Instagram: ["Carrusel", "Reel", "Historia"],
+    "Marketing Email": ["Newsletter", "Nurture", "Invitacion", "Caso de exito"],
+  };
+
+  const available = pilarFormats.length ? pilarFormats : defaults[channel];
+  return available[index % available.length];
+}
+
+function buildBaseTitle(params: {
+  channel: CalendarChannel;
+  tema: string;
+  subtema: string;
+  pilar: string;
+  mainMessage: string;
+}) {
+  const { channel, tema, subtema, pilar, mainMessage } = params;
+  if (channel === "Blog") return `Guia sobre ${subtema} en ${tema}`;
+  if (channel === "LinkedIn")
+    return `${subtema}: enfoque practico para empresas en Peru`;
+  if (channel === "Marketing Email") return `${mainMessage} | ${subtema}`;
+  if (channel === "WhatsApp") return `Seguimiento: ${subtema}`;
+  if (pilar.toLowerCase().includes("producto")) return `Como resolver ${subtema} con Laus`;
+  return `${subtema} aplicado a ${tema}`;
+}
+
+function buildChannelItemId(channel: CalendarChannel, correlativo: number) {
+  const prefixMap: Record<CalendarChannel, string> = {
+    Blog: "BLOG",
+    TikTok: "TT",
+    YouTube: "YT",
+    Facebook: "FB",
+    LinkedIn: "LI",
+    WhatsApp: "WA",
+    Instagram: "IG",
+    "Marketing Email": "EM",
+  };
+  return `${prefixMap[channel]}-${String(correlativo).padStart(2, "0")}`;
+}
+
+function buildCalendarFromPlanTrabajo(params: {
+  planTrabajo: Record<string, unknown>;
+  fallbackAlcance: Record<string, number>;
+}) {
+  const { planTrabajo, fallbackAlcance } = params;
+  const productos = Array.isArray(planTrabajo.productos_servicios_destacar)
+    ? (planTrabajo.productos_servicios_destacar as string[]).filter((item) => typeof item === "string")
+    : [];
+  const mensajes = Array.isArray(planTrabajo.mensajes_destacados)
+    ? (planTrabajo.mensajes_destacados as string[]).filter((item) => typeof item === "string")
+    : [];
+  const contenidoSugerido = Array.isArray(planTrabajo.contenido_sugerido)
+    ? (planTrabajo.contenido_sugerido as Record<string, unknown>[])
+    : [];
+  const lineas = contenidoSugerido
+    .map((row) => {
+      const tema = typeof row.canal === "string" && row.canal.trim() ? row.canal.trim() : "";
+      const subtemas = Array.isArray(row.ideas)
+        ? (row.ideas as string[]).filter((item) => typeof item === "string" && item.trim())
+        : [];
+      return { tema, subtemas };
+    })
+    .filter((row) => row.tema || row.subtemas.length > 0);
+  const ctas = mensajes.length > 0 ? mensajes : ["Solicita una cita"];
+  const hashtagsPermitidos: string[] = [];
+  const frasesProhibidas: string[] = [];
+  const disclaimers: string[] = [];
+  const pilaresRaw = Array.isArray(planTrabajo.pilares_comunicacion)
+    ? (planTrabajo.pilares_comunicacion as Record<string, unknown>[])
+    : [];
+
+  const pilares = pilaresRaw
+    .map((row) => {
+      const pilar = typeof row.pilar === "string" ? row.pilar : "";
+      const porcentajeNum =
+        typeof row.porcentaje === "number"
+          ? row.porcentaje
+          : Number.parseFloat(String(row.porcentaje ?? "0"));
+      const objetivo = typeof row.objetivo === "string" ? row.objetivo : "";
+      const formatos = Array.isArray(row.formatos)
+        ? (row.formatos as string[]).filter((f) => typeof f === "string")
+        : [];
+      return {
+        pilar,
+        porcentaje: Number.isFinite(porcentajeNum) ? porcentajeNum : 0,
+        objetivo: objetivo || `Impulsar ${pilar || "contenido estrategico"}`,
+        formatos,
+      };
+    })
+    .filter((p) => p.pilar);
+
+  const alcanceObj = normalizeAlcanceMap(
+    (planTrabajo as Record<string, unknown>).alcance_calendario,
+  );
+  const alcanceNormalized =
+    Object.keys(alcanceObj).length > 0 ? alcanceObj : fallbackAlcance;
+  const channels = Object.keys(alcanceNormalized)
+    .map((value) => toCalendarChannel(value))
+    .filter((value): value is CalendarChannel => Boolean(value));
+
+  const totalPieces = channels.reduce(
+    (acc, channel) => acc + (alcanceNormalized[channel] ?? 0),
+    0,
+  );
+  const distributedPilares = distributeByPilar(pilares, totalPieces);
+  const pilarPool = expandPilarPool(distributedPilares);
+
+  const items: Array<Record<string, unknown>> = [];
+  const countersByChannel: Record<string, number> = {};
+  const weekCounters: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  let globalIndex = 0;
+
+  for (const channel of channels) {
+    const amount = alcanceNormalized[channel] ?? 0;
+    countersByChannel[channel] = 0;
+
+    for (let i = 0; i < amount; i += 1) {
+      const fallbackPilar = {
+        pilar: "Captura de Leads",
+        porcentaje: 100,
+        objetivo: "Generar leads calificados",
+        formatos: [] as string[],
+      };
+      const pilar =
+        pilarPool[globalIndex % Math.max(pilarPool.length, 1)] ?? fallbackPilar;
+      const fallbackLinea = {
+        tema: productos[0] || "Contenido comercial",
+        subtemas:
+          productos.length > 0
+            ? productos
+            : mensajes.length > 0
+              ? mensajes
+              : ["Propuesta de valor"],
+      };
+      const linea =
+        lineas[globalIndex % Math.max(lineas.length, 1)] ?? fallbackLinea;
+      const tema = typeof linea.tema === "string" ? linea.tema : "Contenido comercial";
+      const subtemas = Array.isArray(linea.subtemas)
+        ? (linea.subtemas as string[])
+        : [];
+      const subtema =
+        subtemas[globalIndex % Math.max(subtemas.length, 1)] || tema;
+      const buyer = productos[globalIndex % Math.max(productos.length, 1)] || "Audiencia prioritaria";
+      const cta = ctas[globalIndex % Math.max(ctas.length, 1)] || "Solicita informacion";
+      const week = weekFromChannelIndex(i, amount);
+
+      weekCounters[week] = (weekCounters[week] ?? 0) + 1;
+      countersByChannel[channel] += 1;
+
+      const format = pickFormatForChannel(channel, pilar.formatos, i);
+      const baseTitle = buildBaseTitle({
+        channel,
+        tema,
+        subtema,
+        pilar: pilar.pilar,
+        mainMessage: mensajes[0] || productos[0] || "",
+      });
+
+      items.push({
+        id: buildChannelItemId(channel, countersByChannel[channel]),
+        canal: channel,
+        semana: week,
+        orden_semana: weekCounters[week],
+        pilar: pilar.pilar,
+        tema,
+        subtema,
+        buyer_persona: buyer,
+        objetivo_contenido: pilar.objetivo,
+        formato: format,
+        titulo_base: baseTitle,
+        CTA: cta,
+        mensaje_clave: mensajes[0] || cta,
+        hashtags: hashtagsPermitidos,
+        restricciones_aplicadas: {
+          frases_prohibidas: frasesProhibidas,
+          disclaimers,
+        },
+        estado: "planificado",
+      });
+      globalIndex += 1;
+    }
+  }
+
+  const summaryByChannel = Object.fromEntries(
+    channels.map((channel) => [channel, alcanceNormalized[channel] ?? 0]),
+  ) as Record<CalendarChannel, number>;
+
+  return {
+    calendario: {
+      cliente: typeof planTrabajo.cliente === "string" ? planTrabajo.cliente : "",
+      marca: typeof planTrabajo.marca === "string" ? planTrabajo.marca : "",
+      pais: typeof planTrabajo.pais === "string" ? planTrabajo.pais : "",
+      version: typeof planTrabajo.version === "string" ? planTrabajo.version : "",
+      generado_desde: "plan_trabajo",
+      resumen_por_canal: summaryByChannel,
+      items,
+    },
+  };
+}
+
+function calendarItemsToWeeks(
+  items: Array<Record<string, unknown>>,
+  periodo: string,
+) {
+  const weekMap = new Map<string, Array<Record<string, unknown>>>();
+  for (const item of items) {
+    const weekNumRaw = item.semana;
+    const weekNum =
+      typeof weekNumRaw === "number"
+        ? weekNumRaw
+        : Number.parseInt(String(weekNumRaw ?? ""), 10);
+    const weekKey =
+      weekNum === 2 ? "S2" : weekNum === 3 ? "S3" : weekNum === 4 ? "S4" : "S1";
+    const list = weekMap.get(weekKey) ?? [];
+    list.push(item);
+    weekMap.set(weekKey, list);
+  }
+
+  const weeks = (["S1", "S2", "S3", "S4"] as const).map((weekKey) => {
+    const weekItems = weekMap.get(weekKey) ?? [];
+    const pieces = weekItems.map((item) => ({
+      fecha: "",
+      canal: typeof item.canal === "string" ? item.canal : "",
+      formato: typeof item.formato === "string" ? item.formato : "Post",
+      tema:
+        (typeof item.titulo_base === "string" && item.titulo_base) ||
+        (typeof item.tema === "string" ? item.tema : ""),
+      objetivo:
+        typeof item.objetivo_contenido === "string" ? item.objetivo_contenido : "",
+      cta: typeof item.CTA === "string" ? item.CTA : "",
+      responsable: "agencia",
+      estado: typeof item.estado === "string" ? item.estado : "planificado",
+    }));
+    return {
+      semana: weekKey,
+      objetivo: `Objetivo operativo ${weekKey}`,
+      piezas: pieces,
+    };
+  });
+
+  return assignCalendarDatesByMonth(weeks, periodo);
 }
 
 export async function createAgencia(formData: FormData) {
@@ -494,9 +1115,27 @@ export async function updateEmpresa(formData: FormData) {
   const nombre = String(formData.get("nombre") ?? "").trim();
   const industria = String(formData.get("industria") ?? "").trim();
   const pais = String(formData.get("pais") ?? "").trim();
+  const alcanceCalendarioJsonField = formData.get("alcance_calendario_json");
 
   if (!empresaId || !nombre) {
     return;
+  }
+
+  const { data: empresaCurrent } = await supabase
+    .from("empresa")
+    .select("metadata_json")
+    .eq("id", empresaId)
+    .eq("agencia_id", agenciaId)
+    .maybeSingle();
+
+  const metadataJson =
+    empresaCurrent?.metadata_json && typeof empresaCurrent.metadata_json === "object"
+      ? ({ ...empresaCurrent.metadata_json } as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+
+  if (alcanceCalendarioJsonField !== null) {
+    const alcanceCalendarioJsonRaw = String(alcanceCalendarioJsonField ?? "").trim();
+    metadataJson.alcance_calendario = parseAlcanceCalendarioJson(alcanceCalendarioJsonRaw);
   }
 
   await supabase
@@ -505,6 +1144,7 @@ export async function updateEmpresa(formData: FormData) {
       nombre,
       industria: industria || null,
       pais: pais || null,
+      metadata_json: metadataJson,
       updated_at: new Date().toISOString(),
     })
     .eq("id", empresaId)
@@ -916,9 +1556,14 @@ export async function deleteAgenciaPrompt(formData: FormData) {
 }
 
 export async function saveBec(formData: FormData) {
-  const supabase = await requireUser();
+  const { supabase, agenciaId } = await requireUserAgenciaContext();
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const content = String(formData.get("contenido") ?? "").trim();
+  const marca = String(formData.get("marca") ?? "").trim();
+  const industria = String(formData.get("industria") ?? "").trim();
+  const pais = String(formData.get("pais") ?? "").trim();
+  const objetivo = String(formData.get("objetivo") ?? "").trim();
+  const problema = String(formData.get("problema") ?? "").trim();
 
   if (!empresaId || !content) {
     return;
@@ -930,6 +1575,26 @@ export async function saveBec(formData: FormData) {
   } catch {
     // Keep plain text payload.
   }
+
+  const { data: empresaCurrent, error: empresaError } = await supabase
+    .from("empresa")
+    .select("metadata_json")
+    .eq("id", empresaId)
+    .eq("agencia_id", agenciaId)
+    .maybeSingle();
+
+  if (empresaError) {
+    throw new Error(`No se pudo leer empresa actual: ${empresaError.message}`);
+  }
+
+  const metadataJson =
+    empresaCurrent?.metadata_json && typeof empresaCurrent.metadata_json === "object"
+      ? ({ ...empresaCurrent.metadata_json } as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+
+  metadataJson.marca = marca;
+  metadataJson.objetivo = objetivo;
+  metadataJson.problema = problema;
 
   const { data: current, error: currentError } = await supabase
     .from("bec")
@@ -965,13 +1630,28 @@ export async function saveBec(formData: FormData) {
     }
   }
 
+  const { error: empresaUpdateError } = await supabase
+    .from("empresa")
+    .update({
+      industria: industria || null,
+      pais: pais || null,
+      metadata_json: metadataJson,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", empresaId)
+    .eq("agencia_id", agenciaId);
+
+  if (empresaUpdateError) {
+    throw new Error(`No se pudo actualizar contexto de empresa: ${empresaUpdateError.message}`);
+  }
+
   revalidateEmpresaRoutes(empresaId);
 }
 
 export async function createBrief(formData: FormData) {
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const periodo = String(formData.get("periodo") ?? "").trim();
-  const estado = String(formData.get("estado") ?? "draft").trim() || "draft";
+  const estado = String(formData.get("estado") ?? "plan").trim() || "plan";
   const contenido = String(formData.get("contenido") ?? "").trim();
 
   if (!empresaId || !periodo || !contenido) {
@@ -990,6 +1670,118 @@ export async function createBrief(formData: FormData) {
   }
 
   await upsertBrief(empresaId, normalizedPeriodo, estado, contenidoJson);
+
+  revalidateEmpresaRoutes(empresaId);
+}
+
+export async function updatePlanTrabajoArtifact(formData: FormData) {
+  const { supabase, agenciaId } = await requireUserAgenciaContext();
+  const empresaId = String(formData.get("empresa_id") ?? "").trim();
+  const planId = String(formData.get("plan_id") ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
+  const status = String(formData.get("status") ?? "plan").trim() || "plan";
+  const content = String(formData.get("content") ?? "").trim();
+
+  if (!empresaId || !planId || !title || !content) {
+    return;
+  }
+
+  let contentJson: Record<string, unknown> = {
+    plan_trabajo: makeDefaultPlanTrabajo(),
+  };
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    contentJson = normalizePlanTrabajoContent(parsed);
+  } catch {
+    throw new Error("El contenido del plan debe ser JSON valido.");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("rag_artifacts")
+    .select("id, version")
+    .eq("id", planId)
+    .eq("artifact_type", "plan_trabajo")
+    .eq("empresa_id", empresaId)
+    .eq("agencia_id", agenciaId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(`No se pudo consultar plan de trabajo: ${existingError.message}`);
+  }
+
+  if (!existing?.id) {
+    throw new Error("Plan de trabajo no encontrado o sin acceso.");
+  }
+
+  const { error: updateError } = await supabase
+    .from("rag_artifacts")
+    .update({
+      title,
+      status,
+      content_json: contentJson,
+      version: (existing.version ?? 1) + 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", existing.id);
+
+  if (updateError) {
+    throw new Error(`No se pudo actualizar plan de trabajo: ${updateError.message}`);
+  }
+
+  revalidateEmpresaRoutes(empresaId);
+}
+
+export async function updateCalendarioArtifact(formData: FormData) {
+  const { supabase, agenciaId } = await requireUserAgenciaContext();
+  const empresaId = String(formData.get("empresa_id") ?? "").trim();
+  const calendarioId = String(formData.get("calendario_id") ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
+  const status = String(formData.get("status") ?? "plan").trim() || "plan";
+  const content = String(formData.get("content") ?? "").trim();
+
+  if (!empresaId || !calendarioId || !title || !content) {
+    return;
+  }
+
+  let contentJson: Record<string, unknown> = makeDefaultCalendarioContent();
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    contentJson = normalizeCalendarioContent(parsed);
+  } catch {
+    throw new Error("El contenido del calendario debe ser JSON valido.");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("rag_artifacts")
+    .select("id, version")
+    .eq("id", calendarioId)
+    .eq("artifact_type", "calendario")
+    .eq("empresa_id", empresaId)
+    .eq("agencia_id", agenciaId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(`No se pudo consultar calendario: ${existingError.message}`);
+  }
+
+  if (!existing?.id) {
+    throw new Error("Calendario no encontrado o sin acceso.");
+  }
+
+  const { error: updateError } = await supabase
+    .from("rag_artifacts")
+    .update({
+      title,
+      status,
+      content_json: contentJson,
+      version: (existing.version ?? 1) + 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", existing.id);
+
+  if (updateError) {
+    throw new Error(`No se pudo actualizar calendario: ${updateError.message}`);
+  }
 
   revalidateEmpresaRoutes(empresaId);
 }
@@ -1036,7 +1828,7 @@ export async function generateBecDraft(formData: FormData) {
     )
     .join("\n\n");
 
-  const draft = await ollamaChat({
+  const generatedBec = await ollamaChat({
     systemPrompt:
       "Eres estratega de marketing. Responde en JSON vÃ¡lido para un BEC comercial.",
     userPrompt: `Genera un BEC para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nContexto documental:\n${context}\n\nDevuelve SOLO JSON con esta estructura:\n{"resumen_ejecutivo":"","propuesta_valor":"","audiencias":[],"mensajes_clave":[],"canales_recomendados":[],"riesgos":[],"proximos_pasos":[]}`,
@@ -1050,11 +1842,11 @@ export async function generateBecDraft(formData: FormData) {
     .eq("empresa_id", empresaId)
     .maybeSingle();
 
-  let contenidoJson: unknown = { texto: draft };
+  let contenidoJson: unknown = { texto: generatedBec };
   try {
-    contenidoJson = JSON.parse(draft);
+    contenidoJson = JSON.parse(generatedBec);
   } catch {
-    // Keep raw draft if model did not return valid JSON.
+    // Keep raw output if model did not return valid JSON.
   }
 
   if (current?.id) {
@@ -1149,7 +1941,7 @@ export async function generateBriefDraft(formData: FormData) {
     BRIEF_TEXT_FIELDS.map((field) => [field, ""]),
   );
 
-  const draft = await ollamaChat({
+  const generatedBrief = await ollamaChat({
     systemPrompt:
       "Eres planner de marketing senior para agencias. Responde en JSON valido para un brief mensual.",
     userPrompt: `Genera el brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nBEC actual (fuente estrategica):\n${becContext}\n\nConocimiento documental de agencia (lineamientos globales):\n${agencyContext || "Sin documentos globales de agencia"}\n\nConocimiento documental de empresa (realidad operativa y comercial):\n${context || "Sin documentos de empresa"}\n\nPrompts activos de agencia:\n${promptsContext || "Sin prompts activos"}\n\nInstrucciones clave:\n1) Usa el BEC como base, no lo ignores.\n2) Contrasta el BEC contra evidencia reciente de documentos de empresa y agencia.\n3) Explicita que se mantiene del BEC y que debe ajustarse para este mes.\n4) En cada ajuste, cita evidencia documental concreta.\n5) Completa el formulario exactamente con las claves indicadas.\n\nDevuelve SOLO JSON con esta estructura exacta:\n{"objectives":${JSON.stringify(objectivesTemplate)},"fields":${JSON.stringify(fieldsTemplate)},"strategicChanges":"si|no","cambios_sobre_bec":[{"tema":"","se_mantiene":"","se_ajusta":"","razon":"","evidencia":""}]}\n\nRegla de formato:\n- En objectives, marca true solo donde aplique.\n- En fields, completa texto accionable y especifico por campo.\n- strategicChanges debe ser "si" o "no".`,
@@ -1161,7 +1953,7 @@ export async function generateBriefDraft(formData: FormData) {
     unknown
   >;
   try {
-    const parsed = JSON.parse(draft) as Record<string, unknown>;
+    const parsed = JSON.parse(generatedBrief) as Record<string, unknown>;
     const normalizedForm = loadBriefForm(parsed);
     const cambiosSobreBec = Array.isArray(parsed.cambios_sobre_bec)
       ? parsed.cambios_sobre_bec
@@ -1215,14 +2007,14 @@ export async function generateBriefDraft(formData: FormData) {
       ...makeDefaultBriefForm(),
       fields: {
         ...makeDefaultBriefForm().fields,
-        [BRIEF_TEXT_FIELDS[0]]: draft.slice(0, 2000),
+        [BRIEF_TEXT_FIELDS[0]]: generatedBrief.slice(0, 2000),
       },
       strategicChanges: "si",
       cambios_sobre_bec: [],
     };
   }
 
-  await upsertBrief(empresaId, normalizedPeriodo, "draft", contenidoJson);
+  await upsertBrief(empresaId, normalizedPeriodo, "plan", contenidoJson);
 
   revalidateEmpresaRoutes(empresaId);
 }
@@ -1230,6 +2022,7 @@ export async function generateBriefDraft(formData: FormData) {
 export async function generatePlanTrabajoDraft(formData: FormData) {
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const briefId = String(formData.get("brief_id") ?? "").trim();
+  const supportFile = formData.get("support_file");
 
   if (!empresaId || !briefId) {
     return;
@@ -1289,6 +2082,27 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
     ? JSON.stringify(becActual.contenido_json, null, 2).slice(0, 14000)
     : "Sin BEC previo";
   const briefContext = JSON.stringify(briefForm, null, 2).slice(0, 14000);
+  let supportDocContext = "";
+  if (supportFile instanceof File && supportFile.size > 0) {
+    const extracted = await extractSupportedDocumentText(supportFile);
+    const translated = await maybeTranslateWithOllama(extracted.rawText);
+    let condensed = translated;
+
+    try {
+      const summary = await summarizeForRagWithOllama(
+        translated,
+        extracted.fileName,
+        extracted.extension || "adjunto_plan",
+      );
+      if (summary) {
+        condensed = `RESUMEN\n${summary}\n\nEXTRACTO\n${translated.slice(0, 12000)}`;
+      }
+    } catch {
+      condensed = translated.slice(0, 14000);
+    }
+
+    supportDocContext = `Documento adjunto para este plan: ${extracted.fileName}\n${condensed.slice(0, 16000)}`;
+  }
   const empresaDocsContext = (docsEmpresa ?? [])
     .map(
       (doc, index) =>
@@ -1307,228 +2121,44 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
         `Prompt ${index + 1} (${row.prompt_type}):\n${row.prompt_text.slice(0, 3500)}`,
     )
     .join("\n\n");
+  const empresaMetadata =
+    empresa.metadata_json && typeof empresa.metadata_json === "object"
+      ? (empresa.metadata_json as Record<string, unknown>)
+      : {};
+  const alcanceCalendario = normalizeAlcanceMap(empresaMetadata.alcance_calendario);
+  const defaultPlanTrabajo = makeDefaultPlanTrabajo({
+    cliente: empresa.nombre,
+    marca: empresa.nombre,
+    pais: empresa.pais ?? "Peru",
+    version: String(brief.periodo).slice(0, 7),
+    periodo: {
+      inicio: String(brief.periodo),
+      fin: String(brief.periodo),
+    },
+    alcance_calendario: alcanceCalendario,
+  });
 
-  const draft = await ollamaChat({
+  const generatedPlan = await ollamaChat({
     systemPrompt:
-      "Eres PM de marketing para agencias. Creas planes de trabajo mensuales accionables. Responde SOLO JSON valido.",
-    userPrompt: `Construye un plan de trabajo mensual para ${brief.periodo}.\n\nAgencia:\n${JSON.stringify(agencia ?? {}, null, 2)}\n\nEmpresa:\n${JSON.stringify(empresa, null, 2)}\n\nBEC:\n${becContext}\n\nBrief seleccionado:\n${briefContext}\n\nConocimiento de empresa:\n${empresaDocsContext || "Sin documentos de empresa"}\n\nConocimiento de agencia:\n${agenciaDocsContext || "Sin documentos globales de agencia"}\n\nPrompts activos:\n${promptContext || "Sin prompts activos"}\n\nReglas:\n1) El plan debe venir en varios puntos concretos y ejecutables.\n2) Incluir minimo 3 workstreams.\n3) Cada workstream debe incluir minimo 4 tareas.\n4) Las tareas deben indicar semana, responsable, prioridad y KPI asociado.\n5) Basar decisiones en BEC + BRIEF + evidencia documental.\n\nDevuelve SOLO JSON con esta estructura:\n{"periodo":"${brief.periodo}","resumen_ejecutivo":"","objetivos_del_mes":[],"workstreams":[{"nombre":"","objetivo":"","entregables":[],"tareas":[{"tarea":"","responsable":"agencia|cliente","semana":"S1|S2|S3|S4","fecha_limite":"","dependencias":[],"kpi_asociado":"","prioridad":"alta|media|baja"}],"riesgos":[],"mitigaciones":[]}],"cadencia_de_seguimiento":{"ritual_semanal":"","responsables":[],"insumos":[]},"aprobaciones_cliente":[],"alertas":[],"supuestos":[],"cambios_sobre_bec":[]}`,
+      "Eres PM y estratega senior de marketing para agencias. Respondes SOLO JSON valido y sin texto adicional.",
+    userPrompt: `Construye un plan de trabajo mensual para ${brief.periodo} con la logica de una plantilla ejecutiva tipo cuadro, similar a esta estructura de secciones: comunidad, resumen de actualizaciones, cantidad de contenidos a desarrollar, pilares de comunicacion, contenido sugerido, productos/servicios a destacar, mensajes destacados, fechas importantes, promociones, plan de medios, eventos, notas adicionales y pendientes del cliente.\n\nAgencia:\n${JSON.stringify(agencia ?? {}, null, 2)}\n\nEmpresa:\n${JSON.stringify(empresa, null, 2)}\n\nBEC:\n${becContext}\n\nBrief seleccionado:\n${briefContext}\n\nDocumento adjunto para esta generacion:\n${supportDocContext || "Sin documento adjunto"}\n\nConocimiento de empresa:\n${empresaDocsContext || "Sin documentos de empresa"}\n\nConocimiento de agencia:\n${agenciaDocsContext || "Sin documentos globales de agencia"}\n\nPrompts activos:\n${promptContext || "Sin prompts activos"}\n\nReglas clave:\n1) Ajusta el contenido al contexto de Peru.\n2) Mantén coherencia total con BEC + BRIEF + evidencia documental.\n3) Si existe documento adjunto, usalo como insumo prioritario para completar y afinar el plan.\n4) Respeta restricciones legales/normativas y tono de voz.\n5) Incluye alcance_calendario exactamente como pauta operativa.\n6) En comunidad, usa metricas resumidas por red con campos red, mes_anterior y meta.\n7) En resumen_actualizaciones, redacta una sintesis ejecutiva y observaciones puntuales.\n8) En cantidad_contenidos, usa red, cantidad y formatos esperados.\n9) En cada item de cantidad_contenidos, sugiere SIEMPRE formatos concretos por red si la cantidad es mayor a 0. Ejemplos validos: reels, carruseles, post estaticos, historias, mails, blogs, banners, videos cortos, anuncios, piezas JPG o MP4. No dejes formatos vacio salvo que la cantidad sea 0.\n10) En pilares_comunicacion, reparte porcentajes y enfocalos en estrategia, no en copies.\n11) En contenido_sugerido genera una verdadera lluvia de ideas por canal. Para cada canal con cantidad > 0, entrega varias ideas generales, no una sola si el canal admite mas volumen. Como referencia, genera entre 3 y 8 ideas por canal segun el peso del canal, sin repetir enfoques. NO des contenidos concretos. SOLO devuelve ideas generales o lineas tematicas por canal. No escribas captions, guiones, copies, textos finales, hashtags, enlaces ni piezas ya redactadas. Cada idea debe ser breve, abstracta y util para que luego el equipo creativo la desarrolle.\n12) En fechas_importantes incluye fechas del mes realmente utiles para planificacion: feriados de Peru, efemerides comerciales, festividades, campañas estacionales y fechas relacionadas con la industria o negocio del cliente cuando apliquen. Si no hay una fecha exacta, puedes incluir hitos comerciales del mes claramente descritos.\n13) En promociones, si no aplica, usa exactamente \"NO APLICA\".\n14) En plan_medios_link, deja URL o texto corto si no existe link final.\n\nDevuelve SOLO JSON con esta estructura exacta de raiz:\n${JSON.stringify({ plan_trabajo: defaultPlanTrabajo })}`,
     temperature: 0.25,
   });
 
-  let contentJson: Record<string, unknown> = {
-    periodo: brief.periodo,
-    resumen_ejecutivo: "",
-    objetivos_del_mes: [],
-    workstreams: [],
-    cadencia_de_seguimiento: {
-      ritual_semanal: "",
-      responsables: [],
-      insumos: [],
-    },
-    aprobaciones_cliente: [],
-    alertas: [],
-    supuestos: [],
-    cambios_sobre_bec: [],
-  };
+  let contentJson: Record<string, unknown> = { plan_trabajo: defaultPlanTrabajo };
   try {
-    const parsed = JSON.parse(draft) as Record<string, unknown>;
-    const rawWorkstreams = Array.isArray(parsed.workstreams)
-      ? (parsed.workstreams as Record<string, unknown>[])
-      : [];
-
-    const normalizedWorkstreams = rawWorkstreams
-      .map((ws, idx) => {
-        const tasks = Array.isArray(ws.tareas)
-          ? (ws.tareas as Record<string, unknown>[])
-          : [];
-        const normalizedTasks = tasks
-          .map((task, tIdx) => ({
-            tarea:
-              typeof task.tarea === "string" && task.tarea.trim()
-                ? task.tarea
-                : `Tarea ${tIdx + 1} del workstream ${idx + 1}`,
-            responsable:
-              task.responsable === "cliente" ? "cliente" : "agencia",
-            semana:
-              task.semana === "S2" || task.semana === "S3" || task.semana === "S4"
-                ? task.semana
-                : "S1",
-            fecha_limite:
-              typeof task.fecha_limite === "string" ? task.fecha_limite : "",
-            dependencias: Array.isArray(task.dependencias) ? task.dependencias : [],
-            kpi_asociado:
-              typeof task.kpi_asociado === "string" ? task.kpi_asociado : "",
-            prioridad:
-              task.prioridad === "baja" || task.prioridad === "media"
-                ? task.prioridad
-                : "alta",
-          }))
-          .filter((task) => task.tarea.trim().length > 0);
-
-        return {
-          nombre:
-            typeof ws.nombre === "string" && ws.nombre.trim()
-              ? ws.nombre
-              : `Workstream ${idx + 1}`,
-          objetivo:
-            typeof ws.objetivo === "string" ? ws.objetivo : "",
-          entregables: Array.isArray(ws.entregables) ? ws.entregables : [],
-          tareas: normalizedTasks,
-          riesgos: Array.isArray(ws.riesgos) ? ws.riesgos : [],
-          mitigaciones: Array.isArray(ws.mitigaciones) ? ws.mitigaciones : [],
-        };
-      })
-      .filter((ws) => ws.nombre.trim().length > 0);
-
-    while (normalizedWorkstreams.length < 3) {
-      const n = normalizedWorkstreams.length + 1;
-      normalizedWorkstreams.push({
-        nombre: `Workstream ${n}`,
-        objetivo: "Pendiente de definir con base en el BRIEF",
-        entregables: [`Entregable principal ${n}`],
-        tareas: [
-          {
-            tarea: `Definir alcance del workstream ${n}`,
-            responsable: "agencia",
-            semana: "S1",
-            fecha_limite: "",
-            dependencias: [],
-            kpi_asociado: "Avance semanal",
-            prioridad: "alta",
-          },
-          {
-            tarea: `Producir activos del workstream ${n}`,
-            responsable: "agencia",
-            semana: "S2",
-            fecha_limite: "",
-            dependencias: [],
-            kpi_asociado: "Entregables producidos",
-            prioridad: "alta",
-          },
-          {
-            tarea: `Validar con cliente el workstream ${n}`,
-            responsable: "cliente",
-            semana: "S3",
-            fecha_limite: "",
-            dependencias: [],
-            kpi_asociado: "Tiempo de aprobacion",
-            prioridad: "media",
-          },
-          {
-            tarea: `Medir resultados del workstream ${n}`,
-            responsable: "agencia",
-            semana: "S4",
-            fecha_limite: "",
-            dependencias: [],
-            kpi_asociado: "KPI del stream",
-            prioridad: "media",
-          },
-        ],
-        riesgos: [],
-        mitigaciones: [],
-      });
-    }
-
-    const completedWorkstreams = normalizedWorkstreams.map((ws) => {
-      const tareas = [...ws.tareas];
-      while (tareas.length < 4) {
-        const n = tareas.length + 1;
-        tareas.push({
-          tarea: `Tarea operativa ${n} - ${ws.nombre}`,
-          responsable: n % 2 === 0 ? "cliente" : "agencia",
-          semana: n === 1 ? "S1" : n === 2 ? "S2" : n === 3 ? "S3" : "S4",
-          fecha_limite: "",
-          dependencias: [],
-          kpi_asociado: "Seguimiento mensual",
-          prioridad: n <= 2 ? "alta" : "media",
-        });
-      }
-      return { ...ws, tareas };
-    });
-
-    contentJson = {
-      periodo:
-        typeof parsed.periodo === "string" && parsed.periodo
-          ? parsed.periodo
-          : brief.periodo,
-      resumen_ejecutivo:
-        typeof parsed.resumen_ejecutivo === "string"
-          ? parsed.resumen_ejecutivo
-          : "",
-      objetivos_del_mes: Array.isArray(parsed.objetivos_del_mes)
-        ? parsed.objetivos_del_mes
-        : [],
-      workstreams: completedWorkstreams,
-      cadencia_de_seguimiento:
-        parsed.cadencia_de_seguimiento && typeof parsed.cadencia_de_seguimiento === "object"
-          ? parsed.cadencia_de_seguimiento
-          : {
-              ritual_semanal: "Reunion semanal de seguimiento",
-              responsables: ["agencia", "cliente"],
-              insumos: ["KPI semanal", "estado de tareas", "bloqueos"],
-            },
-      aprobaciones_cliente: Array.isArray(parsed.aprobaciones_cliente)
-        ? parsed.aprobaciones_cliente
-        : [],
-      alertas: Array.isArray(parsed.alertas) ? parsed.alertas : [],
-      supuestos: Array.isArray(parsed.supuestos) ? parsed.supuestos : [],
-      cambios_sobre_bec: Array.isArray(parsed.cambios_sobre_bec)
-        ? parsed.cambios_sobre_bec
-        : [],
-    };
+    const parsed = JSON.parse(generatedPlan) as Record<string, unknown>;
+    contentJson = normalizePlanTrabajoContent(parsed, defaultPlanTrabajo);
   } catch {
-    // Keep raw output if model returns invalid json.
-    contentJson = {
-      ...contentJson,
-      resumen_ejecutivo: draft.slice(0, 2400),
-      workstreams: [
-        {
-          nombre: "Operacion comercial mensual",
-          objetivo: "Ejecutar iniciativas definidas en BRIEF con disciplina semanal.",
-          entregables: ["Plan operativo", "Reporte de avance", "Ajustes de campana"],
-          tareas: [
-            {
-              tarea: "Alinear objetivos y prioridades con el cliente",
-              responsable: "agencia",
-              semana: "S1",
-              fecha_limite: "",
-              dependencias: [],
-              kpi_asociado: "Acta aprobada",
-              prioridad: "alta",
-            },
-            {
-              tarea: "Ejecutar produccion y lanzamientos del mes",
-              responsable: "agencia",
-              semana: "S2",
-              fecha_limite: "",
-              dependencias: [],
-              kpi_asociado: "Entregables publicados",
-              prioridad: "alta",
-            },
-            {
-              tarea: "Validar ajustes y aprobaciones pendientes",
-              responsable: "cliente",
-              semana: "S3",
-              fecha_limite: "",
-              dependencias: [],
-              kpi_asociado: "SLA de aprobacion",
-              prioridad: "media",
-            },
-            {
-              tarea: "Analizar KPIs y definir optimizaciones",
-              responsable: "agencia",
-              semana: "S4",
-              fecha_limite: "",
-              dependencias: [],
-              kpi_asociado: "Cumplimiento de KPIs",
-              prioridad: "media",
-            },
-          ],
-          riesgos: [],
-          mitigaciones: [],
+    contentJson = normalizePlanTrabajoContent(
+      {
+        plan_trabajo: {
+          ...defaultPlanTrabajo,
+          notas_adicionales: generatedPlan.slice(0, 2400),
         },
-      ],
-    };
+      },
+      defaultPlanTrabajo,
+    );
   }
 
   await upsertPlanTrabajoArtifact({
@@ -1546,6 +2176,8 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 export async function generateCalendarioDraft(formData: FormData) {
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const planArtifactId = String(formData.get("plan_artifact_id") ?? "").trim();
+  const alcanceCalendarioRaw = String(formData.get("alcance_calendario") ?? "").trim();
+  const alcanceFromForm = parseAlcanceCalendario(alcanceCalendarioRaw);
 
   if (!empresaId || !planArtifactId) {
     return;
@@ -1553,7 +2185,7 @@ export async function generateCalendarioDraft(formData: FormData) {
 
   const { supabase, agenciaId } = await requireUserAgenciaContext();
 
-  const [{ data: empresa }, { data: plan }, { data: becActual }, { data: docsEmpresa }, { data: docsAgencia }, { data: prompts }, { data: agencia }] =
+  const [{ data: empresa }, { data: plan }] =
     await Promise.all([
       supabase
         .from("empresa")
@@ -1569,43 +2201,25 @@ export async function generateCalendarioDraft(formData: FormData) {
         .eq("empresa_id", empresaId)
         .eq("agencia_id", agenciaId)
         .maybeSingle(),
-      supabase
-        .from("bec")
-        .select("version, contenido_json, updated_at")
-        .eq("empresa_id", empresaId)
-        .maybeSingle(),
-      supabase
-        .from("kb_documents")
-        .select("id, title, raw_text, created_at")
-        .eq("empresa_id", empresaId)
-        .eq("agencia_id", agenciaId)
-        .order("created_at", { ascending: false })
-        .limit(8),
-      supabase
-        .from("kb_documents")
-        .select("id, title, raw_text, created_at")
-        .eq("agencia_id", agenciaId)
-        .is("empresa_id", null)
-        .order("created_at", { ascending: false })
-        .limit(6),
-      supabase
-        .from("agencia_prompt")
-        .select("prompt_type, prompt_text, activo, updated_at")
-        .eq("agencia_id", agenciaId)
-        .eq("activo", true)
-        .in("prompt_type", ["bec", "plan_trabajo", "calendario"])
-        .order("updated_at", { ascending: false }),
-      supabase.from("agencia").select("id, nombre, slug").eq("id", agenciaId).maybeSingle(),
     ]);
 
   if (!empresa || !plan) {
     return;
   }
 
+  const empresaMetadata =
+    empresa.metadata_json && typeof empresa.metadata_json === "object"
+      ? (empresa.metadata_json as Record<string, unknown>)
+      : {};
+  const alcanceFromEmpresa = normalizeAlcanceMap(empresaMetadata.alcance_calendario);
+  const alcanceCalendario =
+    Object.keys(alcanceFromForm).length > 0 ? alcanceFromForm : alcanceFromEmpresa;
+
   const planContent =
     plan.content_json && typeof plan.content_json === "object"
       ? (plan.content_json as Record<string, unknown>)
       : {};
+  const planSeedWeeks = buildCalendarWeeksFromPlanContent(planContent);
   const inputs =
     plan.inputs_json && typeof plan.inputs_json === "object"
       ? (plan.inputs_json as Record<string, unknown>)
@@ -1614,166 +2228,92 @@ export async function generateCalendarioDraft(formData: FormData) {
     typeof inputs.periodo === "string" && inputs.periodo
       ? inputs.periodo
       : new Date().toISOString().slice(0, 10);
+  const planRoot =
+    planContent.plan_trabajo && typeof planContent.plan_trabajo === "object"
+      ? (planContent.plan_trabajo as Record<string, unknown>)
+      : ({
+          cliente: empresa.nombre,
+          marca: empresa.nombre,
+          pais: empresa.pais ?? "Peru",
+          version: String(periodo).slice(0, 7),
+          productos_servicios_destacar: [],
+          mensajes_destacados: [],
+          pilares_comunicacion: [],
+          contenido_sugerido: [],
+          alcance_calendario: alcanceCalendario,
+        } as Record<string, unknown>);
 
-  const becContext = becActual?.contenido_json
-    ? JSON.stringify(becActual.contenido_json, null, 2).slice(0, 14000)
-    : "Sin BEC previo";
-  const planContext = JSON.stringify(planContent, null, 2).slice(0, 16000);
-  const empresaDocsContext = (docsEmpresa ?? [])
-    .map(
-      (doc, index) =>
-        `Documento empresa ${index + 1}: ${doc.title}\n${doc.raw_text.slice(0, 1600)}`,
-    )
-    .join("\n\n");
-  const agenciaDocsContext = (docsAgencia ?? [])
-    .map(
-      (doc, index) =>
-        `Documento agencia ${index + 1}: ${doc.title}\n${doc.raw_text.slice(0, 1400)}`,
-    )
-    .join("\n\n");
-  const promptContext = (prompts ?? [])
-    .map(
-      (row, index) =>
-        `Prompt ${index + 1} (${row.prompt_type}):\n${row.prompt_text.slice(0, 3500)}`,
-    )
-    .join("\n\n");
-
-  const draft = await ollamaChat({
-    systemPrompt:
-      "Eres content planner senior para agencias. Generas calendario mensual accionable. Responde SOLO JSON valido.",
-    userPrompt: `Construye un calendario mensual para ${periodo}.\n\nAgencia:\n${JSON.stringify(agencia ?? {}, null, 2)}\n\nEmpresa:\n${JSON.stringify(empresa, null, 2)}\n\nBEC:\n${becContext}\n\nPlan de trabajo base:\n${planContext}\n\nConocimiento de empresa:\n${empresaDocsContext || "Sin documentos de empresa"}\n\nConocimiento de agencia:\n${agenciaDocsContext || "Sin documentos globales de agencia"}\n\nPrompts activos:\n${promptContext || "Sin prompts activos"}\n\nReglas:\n1) Entregar calendario en varios puntos concretos por semana.\n2) Incluir S1, S2, S3 y S4.\n3) Minimo 3 piezas por semana.\n4) Cada pieza debe tener fecha, canal, formato, tema, objetivo y CTA.\n5) Mantener consistencia con BEC + plan de trabajo.\n\nDevuelve SOLO JSON con esta estructura:\n{"periodo":"${periodo}","resumen":"","canales_prioritarios":[],"semanas":[{"semana":"S1","objetivo":"","piezas":[{"fecha":"","canal":"","formato":"","tema":"","objetivo":"","cta":"","responsable":"agencia|cliente","estado":"planificado"}]}],"hitos":[],"riesgos":[],"supuestos":[]}`,
-    temperature: 0.25,
+  const calendarPayload = buildCalendarFromPlanTrabajo({
+    planTrabajo: planRoot,
+    fallbackAlcance: alcanceCalendario,
   });
+  const seedItems = Array.isArray(calendarPayload.calendario.items)
+    ? (calendarPayload.calendario.items as Record<string, unknown>[])
+    : [];
+  const seedWeeks =
+    planSeedWeeks.length > 0
+      ? assignCalendarDatesByMonth(
+          applyAlcanceToWeeks(planSeedWeeks, alcanceCalendario),
+          periodo,
+        )
+      : calendarItemsToWeeks(seedItems, periodo);
 
-  let contentJson: Record<string, unknown> = {
+  const defaultCalendario = makeDefaultCalendarioContent({
     periodo,
-    resumen: "",
-    canales_prioritarios: [],
-    semanas: [],
+    resumen: `Calendario generado desde plan_trabajo (${String(periodo).slice(0, 7)}).`,
+    canales_prioritarios: Object.keys(alcanceCalendario),
+    semanas: seedWeeks,
     hitos: [],
     riesgos: [],
     supuestos: [],
-  };
+    alcance_calendario: alcanceCalendario,
+    calendario: {
+      cliente: empresa.nombre,
+      marca: empresa.nombre,
+      pais: empresa.pais ?? "Peru",
+      version: String(periodo).slice(0, 7),
+      generado_desde: "plan_trabajo",
+      resumen_por_canal:
+        calendarPayload.calendario && typeof calendarPayload.calendario === "object"
+          ? (calendarPayload.calendario.resumen_por_canal as Record<string, number>) ?? {}
+          : {},
+      items: seedItems as never[],
+    },
+  });
+
+  const generatedCalendario = await ollamaChat({
+    systemPrompt:
+      "Eres content planner senior. Respondes SOLO JSON valido sin markdown ni texto adicional.",
+    userPrompt: [
+      `Genera un calendario editorial mensual para el periodo ${periodo}.`,
+      "",
+      "Contexto empresa:",
+      JSON.stringify(empresa, null, 2),
+      "",
+      "Plan de trabajo base:",
+      JSON.stringify(planRoot, null, 2),
+      "",
+      `Alcance operativo por canal: ${JSON.stringify(alcanceCalendario)}`,
+      "",
+      "Reglas estrictas:",
+      "1) Devuelve SOLO JSON con la estructura exacta indicada.",
+      "2) Usa fechas reales YYYY-MM-DD dentro del mes del periodo.",
+      "3) Mantén coherencia con plan_trabajo, especialmente pilares, ideas sugeridas, mensajes destacados y productos/servicios.",
+      "4) calendario.items debe contener todos los eventos editables.",
+      "5) No agregues claves fuera de la estructura.",
+      "",
+      "Estructura exacta requerida:",
+      JSON.stringify(defaultCalendario),
+    ].join("\n"),
+    temperature: 0.2,
+  });
+
+  let contentJson: Record<string, unknown> = defaultCalendario as unknown as Record<string, unknown>;
   try {
-    const parsed = JSON.parse(draft) as Record<string, unknown>;
-    const rawWeeks = Array.isArray(parsed.semanas)
-      ? (parsed.semanas as Record<string, unknown>[])
-      : [];
-
-    const normalizedWeeks = rawWeeks.map((week, wIdx) => {
-      const piezas = Array.isArray(week.piezas)
-        ? (week.piezas as Record<string, unknown>[])
-        : [];
-      const normalizedPiezas = piezas.map((piece, pIdx) => ({
-        fecha: typeof piece.fecha === "string" ? piece.fecha : "",
-        canal: typeof piece.canal === "string" ? piece.canal : "Instagram",
-        formato: typeof piece.formato === "string" ? piece.formato : "Post",
-        tema:
-          typeof piece.tema === "string" && piece.tema.trim()
-            ? piece.tema
-            : `Pieza ${pIdx + 1} de semana ${wIdx + 1}`,
-        objetivo: typeof piece.objetivo === "string" ? piece.objetivo : "",
-        cta: typeof piece.cta === "string" ? piece.cta : "",
-        responsable: piece.responsable === "cliente" ? "cliente" : "agencia",
-        estado: typeof piece.estado === "string" ? piece.estado : "planificado",
-      }));
-
-      return {
-        semana:
-          week.semana === "S2" || week.semana === "S3" || week.semana === "S4"
-            ? week.semana
-            : "S1",
-        objetivo: typeof week.objetivo === "string" ? week.objetivo : "",
-        piezas: normalizedPiezas,
-      };
-    });
-
-    const weekKeys = ["S1", "S2", "S3", "S4"] as const;
-    for (const key of weekKeys) {
-      if (!normalizedWeeks.some((w) => w.semana === key)) {
-        normalizedWeeks.push({
-          semana: key,
-          objetivo: `Objetivo operativo ${key}`,
-          piezas: [],
-        });
-      }
-    }
-
-    const completedWeeks = normalizedWeeks
-      .map((week) => {
-        const piezas = [...week.piezas];
-        while (piezas.length < 3) {
-          const n = piezas.length + 1;
-          piezas.push({
-            fecha: "",
-            canal: "Instagram",
-            formato: n % 2 === 0 ? "Reel" : "Carrusel",
-            tema: `Contenido ${n} ${week.semana}`,
-            objetivo: "Alcance y consideracion",
-            cta: "Mas informacion",
-            responsable: "agencia",
-            estado: "planificado",
-          });
-        }
-        return { ...week, piezas };
-      })
-      .sort((a, b) => a.semana.localeCompare(b.semana));
-
-    contentJson = {
-      periodo:
-        typeof parsed.periodo === "string" && parsed.periodo ? parsed.periodo : periodo,
-      resumen: typeof parsed.resumen === "string" ? parsed.resumen : "",
-      canales_prioritarios: Array.isArray(parsed.canales_prioritarios)
-        ? parsed.canales_prioritarios
-        : [],
-      semanas: completedWeeks,
-      hitos: Array.isArray(parsed.hitos) ? parsed.hitos : [],
-      riesgos: Array.isArray(parsed.riesgos) ? parsed.riesgos : [],
-      supuestos: Array.isArray(parsed.supuestos) ? parsed.supuestos : [],
-    };
+    const parsed = JSON.parse(generatedCalendario) as unknown;
+    contentJson = normalizeCalendarioContent(parsed, defaultCalendario);
   } catch {
-    contentJson = {
-      ...contentJson,
-      resumen: draft.slice(0, 2000),
-      semanas: [
-        {
-          semana: "S1",
-          objetivo: "Activacion inicial del mes",
-          piezas: [
-            { fecha: "", canal: "Instagram", formato: "Carrusel", tema: "Insight de industria", objetivo: "Awareness", cta: "Descubrir", responsable: "agencia", estado: "planificado" },
-            { fecha: "", canal: "LinkedIn", formato: "Post", tema: "Caso de uso", objetivo: "Consideracion", cta: "Leer mas", responsable: "agencia", estado: "planificado" },
-            { fecha: "", canal: "Email", formato: "Newsletter", tema: "Novedades del mes", objetivo: "Retencion", cta: "Visitar sitio", responsable: "agencia", estado: "planificado" },
-          ],
-        },
-        {
-          semana: "S2",
-          objetivo: "Profundizar interes",
-          piezas: [
-            { fecha: "", canal: "Instagram", formato: "Reel", tema: "Behind the scenes", objetivo: "Engagement", cta: "Comentar", responsable: "agencia", estado: "planificado" },
-            { fecha: "", canal: "LinkedIn", formato: "Articulo", tema: "Tendencias", objetivo: "Autoridad", cta: "Leer articulo", responsable: "agencia", estado: "planificado" },
-            { fecha: "", canal: "Blog", formato: "Post", tema: "Guia practica", objetivo: "SEO", cta: "Descargar", responsable: "agencia", estado: "planificado" },
-          ],
-        },
-        {
-          semana: "S3",
-          objetivo: "Empujar conversion",
-          piezas: [
-            { fecha: "", canal: "Instagram", formato: "Story", tema: "Oferta puntual", objetivo: "Conversion", cta: "Escribir DM", responsable: "agencia", estado: "planificado" },
-            { fecha: "", canal: "WhatsApp", formato: "Broadcast", tema: "Recordatorio", objetivo: "Lead", cta: "Responder", responsable: "cliente", estado: "planificado" },
-            { fecha: "", canal: "LinkedIn", formato: "Post", tema: "Testimonio cliente", objetivo: "Confianza", cta: "Solicitar demo", responsable: "agencia", estado: "planificado" },
-          ],
-        },
-        {
-          semana: "S4",
-          objetivo: "Cierre y aprendizaje",
-          piezas: [
-            { fecha: "", canal: "Instagram", formato: "Carrusel", tema: "Resumen del mes", objetivo: "Retencion", cta: "Guardar", responsable: "agencia", estado: "planificado" },
-            { fecha: "", canal: "LinkedIn", formato: "Post", tema: "Resultados obtenidos", objetivo: "Autoridad", cta: "Contactar", responsable: "agencia", estado: "planificado" },
-            { fecha: "", canal: "Email", formato: "Newsletter", tema: "Proximos pasos", objetivo: "Continuidad", cta: "Agendar reunion", responsable: "cliente", estado: "planificado" },
-          ],
-        },
-      ],
-    };
+    contentJson = normalizeCalendarioContent(defaultCalendario, defaultCalendario);
   }
 
   await upsertCalendarioArtifact({
@@ -1782,6 +2322,7 @@ export async function generateCalendarioDraft(formData: FormData) {
     planArtifactId: plan.id,
     periodo,
     contenidoJson: contentJson,
+    alcanceCalendario,
   });
 
   revalidateEmpresaRoutes(empresaId);

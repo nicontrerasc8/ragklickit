@@ -11,6 +11,7 @@ import {
   BriefFormState,
   makeDefaultBriefForm,
 } from "@/lib/brief/schema";
+import { LayoutPanelLeft } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ function ObjectiveGroupCard({
         </span>
       </div>
 
-      <div className="p-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 p-4 2xl:grid-cols-3">
         {group.options.map((option) => {
           const checked = !!formState.objectives[group.id]?.[option];
           return (
@@ -178,7 +179,7 @@ function TextFieldCard({
       </div>
       <div className="p-4">
         <textarea
-          rows={4}
+          rows={5}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Escribe una respuesta concreta, accionable y con contexto del mes."
@@ -212,7 +213,8 @@ export default function BriefEditor({ empresaId, initialPeriodo, initialFormStat
   const progressPct = Math.round((completedSteps / totalSteps) * 100);
 
   return (
-    <div className="space-y-4">
+    <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)] 2xl:grid-cols-[340px_minmax(0,1fr)]">
+      <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
       {/* ── Header card ──────────────────────────────────────────────── */}
       <section className="rounded-2xl border border-white/8 bg-white/[0.018] p-5 space-y-5">
         <div className="flex items-start justify-between gap-4">
@@ -247,7 +249,7 @@ export default function BriefEditor({ empresaId, initialPeriodo, initialFormStat
         </div>
 
         {/* Period + AI action */}
-        <div className="flex flex-wrap items-end gap-4">
+        <div className="grid gap-4">
           <div className="space-y-1.5">
             <label className="block text-[11px] font-medium text-white/30 pl-0.5">Periodo</label>
             <input
@@ -271,20 +273,37 @@ export default function BriefEditor({ empresaId, initialPeriodo, initialFormStat
           </form>
         </div>
       </section>
+      <section className="rounded-2xl border border-white/8 bg-white/[0.015] p-4">
+        <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-white/28">
+          <LayoutPanelLeft size={13} />
+          Resumen
+        </div>
+        <div className="mt-4 grid gap-2">
+          <SummaryRow label="Periodo" value={periodo || "-"} />
+          <SummaryRow label="Objetivos" value={`${checkedObjectives}/${totalObjectives}`} />
+          <SummaryRow label="Campos" value={`${filledFields}/${BRIEF_TEXT_FIELDS.length}`} />
+          <SummaryRow label="Progreso" value={`${progressPct}%`} />
+        </div>
+      </section>
+      </aside>
+
+      <div className="space-y-4">
 
       {/* ── Objectives ───────────────────────────────────────────────── */}
       <div className="space-y-2">
         <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/25 px-1">
           Objetivos — {checkedObjectives}/{totalObjectives}
         </p>
-        {BRIEF_OBJECTIVE_GROUPS.map((group) => (
-          <ObjectiveGroupCard
-            key={group.id}
-            group={group}
-            formState={formState}
-            setFormState={setFormState}
-          />
-        ))}
+        <div className="grid gap-3">
+          {BRIEF_OBJECTIVE_GROUPS.map((group) => (
+            <ObjectiveGroupCard
+              key={group.id}
+              group={group}
+              formState={formState}
+              setFormState={setFormState}
+            />
+          ))}
+        </div>
       </div>
 
       {/* ── Text fields ──────────────────────────────────────────────── */}
@@ -292,20 +311,22 @@ export default function BriefEditor({ empresaId, initialPeriodo, initialFormStat
         <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/25 px-1">
           Preguntas — {filledFields}/{BRIEF_TEXT_FIELDS.length}
         </p>
-        {BRIEF_TEXT_FIELDS.map((field, i) => (
-          <TextFieldCard
-            key={field}
-            field={field}
-            value={formState.fields[field] ?? ""}
-            onChange={(v) =>
-              setFormState((prev) => ({
-                ...prev,
-                fields: { ...prev.fields, [field]: v },
-              }))
-            }
-            index={i}
-          />
-        ))}
+        <div className="grid gap-3 2xl:grid-cols-2">
+          {BRIEF_TEXT_FIELDS.map((field, i) => (
+            <TextFieldCard
+              key={field}
+              field={field}
+              value={formState.fields[field] ?? ""}
+              onChange={(v) =>
+                setFormState((prev) => ({
+                  ...prev,
+                  fields: { ...prev.fields, [field]: v },
+                }))
+              }
+              index={i}
+            />
+          ))}
+        </div>
       </div>
 
       {/* ── Strategic changes ────────────────────────────────────────── */}
@@ -372,10 +393,20 @@ export default function BriefEditor({ empresaId, initialPeriodo, initialFormStat
       >
         <input type="hidden" name="empresa_id" value={empresaId} />
         <input type="hidden" name="periodo" value={periodo} />
-        <input type="hidden" name="estado" value="draft" />
+        <input type="hidden" name="estado" value="plan" />
         <input type="hidden" name="contenido" value={serialized} />
         <SaveBriefButton />
       </form>
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-white/7 bg-white/[0.02] px-3 py-2.5">
+      <span className="text-[12px] text-white/38">{label}</span>
+      <span className="text-[12px] font-semibold text-white/75">{value}</span>
     </div>
   );
 }

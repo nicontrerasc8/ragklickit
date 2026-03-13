@@ -5,6 +5,7 @@ import {
 } from "@/app/protected/actions";
 import { createClient } from "@/lib/supabase/server";
 import DocumentsManager from "./DocumentsManager";
+import EmpresaAlcanceEditor from "./EmpresaAlcanceEditor";
 import EmpresaDashboard from "./EmpresaDashboard";
 
 type EmpresaPageProps = {
@@ -36,7 +37,7 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
   const [{ data: empresa }, { data: bec }, { data: documents }] = await Promise.all([
     supabase
       .from("empresa")
-      .select("id, nombre, industria, pais")
+      .select("id, nombre, industria, pais, metadata_json")
       .eq("id", empresaId)
       .eq("agencia_id", agenciaId)
       .maybeSingle(),
@@ -58,6 +59,7 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
   return (
     <div className="flex flex-col gap-8">
       <EmpresaDashboard empresa={empresa} bec={bec} docsCount={docsCount} />
+      <EmpresaAlcanceEditor empresa={empresa} />
 
       <section className="rounded-lg border p-5 space-y-4">
         <h2 className="text-lg font-semibold">Documentos de la empresa</h2>

@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-
 import { saveBec } from "@/app/protected/actions";
 import {
   BEC_TEMPLATE,
@@ -11,8 +10,7 @@ import {
   CompanyForm,
   DEFAULT_COMPANY,
 } from "@/lib/bec/schema";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { LayoutPanelLeft, Save, Sparkles } from "lucide-react";
 
 type BecEditorProps = {
   empresaId: string;
@@ -20,8 +18,6 @@ type BecEditorProps = {
   initialBec: BECState;
   becVersion: number;
 };
-
-// ─── Input primitives ────────────────────────────────────────────────────────
 
 function Field({
   label,
@@ -40,13 +36,13 @@ function Field({
 }) {
   const filled = value.trim().length > 0;
   const base =
-    "w-full rounded-xl border border-white/8 bg-white/[0.03] px-3.5 py-2.5 text-[13px] text-white/75 leading-relaxed placeholder:text-white/18 focus:outline-none focus:border-white/16 focus:bg-white/[0.045] transition-all resize-none";
+    "w-full rounded-2xl border border-white/8 bg-white/[0.03] px-3.5 py-3 text-[13px] leading-relaxed text-white/80 placeholder:text-white/18 transition-all focus:border-white/16 focus:bg-white/[0.045] focus:outline-none resize-none";
 
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <label className="text-[11px] font-medium text-white/35 pl-0.5">{label}</label>
-        {filled && <span className="text-[10px] font-semibold text-sky-400/70">✓</span>}
+        <label className="pl-0.5 text-[11px] font-medium text-white/40">{label}</label>
+        {filled ? <span className="text-[10px] font-semibold text-sky-400/80">OK</span> : null}
       </div>
       {multiline ? (
         <textarea
@@ -55,7 +51,6 @@ function Field({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           className={base}
-          style={{ fontFamily: "inherit" }}
         />
       ) : (
         <input
@@ -64,14 +59,11 @@ function Field({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           className={base}
-          style={{ fontFamily: "inherit" }}
         />
       )}
     </div>
   );
 }
-
-// ─── Pilar row ────────────────────────────────────────────────────────────────
 
 function PilarRow({
   pilar,
@@ -82,7 +74,7 @@ function PilarRow({
   idx: number;
   onChange: (field: string, val: string) => void;
 }) {
-  const ACCENT_COLORS = [
+  const accents = [
     "from-sky-400 to-blue-500",
     "from-violet-400 to-indigo-500",
     "from-teal-400 to-cyan-500",
@@ -90,13 +82,12 @@ function PilarRow({
     "from-amber-400 to-orange-500",
     "from-emerald-400 to-green-500",
   ];
-  const accent = ACCENT_COLORS[idx % ACCENT_COLORS.length];
 
   return (
-    <div className="rounded-xl border border-white/7 bg-white/[0.018] overflow-hidden">
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/5">
+    <div className="overflow-hidden rounded-2xl border border-white/7 bg-white/[0.018]">
+      <div className="flex items-center gap-3 border-b border-white/6 px-4 py-3">
         <span
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accent} text-[10px] font-bold text-white shadow opacity-80`}
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accents[idx % accents.length]} text-[10px] font-bold text-white`}
         >
           {idx + 1}
         </span>
@@ -104,29 +95,25 @@ function PilarRow({
           value={pilar.pilar}
           onChange={(e) => onChange("pilar", e.target.value)}
           placeholder={`Pilar ${idx + 1}`}
-          className="flex-1 bg-transparent text-[13px] font-semibold text-white/75 placeholder:text-white/25 focus:outline-none"
-          style={{ fontFamily: "inherit" }}
+          className="flex-1 bg-transparent text-[13px] font-semibold text-white/80 placeholder:text-white/25 focus:outline-none"
         />
-        {pilar.porcentaje && (
-          <span className="shrink-0 font-mono text-[11px] text-white/35">{pilar.porcentaje}</span>
-        )}
+        {pilar.porcentaje ? <span className="text-[11px] text-white/35">{pilar.porcentaje}</span> : null}
       </div>
-      <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-3">
+      <div className="grid gap-3 p-4 md:grid-cols-3">
         {(
           [
             { key: "porcentaje", label: "% Contenido", placeholder: "20%" },
-            { key: "canales", label: "Canales", placeholder: "Instagram, Email…" },
-            { key: "formatos", label: "Formatos", placeholder: "Reels, carruseles…" },
+            { key: "canales", label: "Canales", placeholder: "Instagram, Email..." },
+            { key: "formatos", label: "Formatos", placeholder: "Reels, carruseles..." },
           ] as const
         ).map(({ key, label, placeholder }) => (
-          <div key={key} className="space-y-1">
-            <label className="text-[10px] font-medium text-white/25 pl-0.5">{label}</label>
+          <div key={key} className="space-y-1.5">
+            <label className="pl-0.5 text-[10px] font-medium text-white/28">{label}</label>
             <input
               value={(pilar as Record<string, string>)[key]}
               onChange={(e) => onChange(key, e.target.value)}
               placeholder={placeholder}
-              className="w-full rounded-lg border border-white/6 bg-white/[0.025] px-2.5 py-1.5 text-[12px] text-white/60 placeholder:text-white/18 focus:outline-none focus:border-white/14 transition-all"
-              style={{ fontFamily: "inherit" }}
+              className="w-full rounded-xl border border-white/7 bg-white/[0.03] px-3 py-2 text-[12px] text-white/70 placeholder:text-white/18 transition-all focus:border-white/14 focus:outline-none"
             />
           </div>
         ))}
@@ -134,8 +121,6 @@ function PilarRow({
     </div>
   );
 }
-
-// ─── BEC Section ─────────────────────────────────────────────────────────────
 
 function BecSection({
   section,
@@ -146,68 +131,74 @@ function BecSection({
   bec: BECState;
   setBec: React.Dispatch<React.SetStateAction<BECState>>;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(section.title === BEC_TEMPLATE[0]?.title);
   const fieldRows = section.rows.filter(
-    (r): r is { kind: "field"; key: BECFieldKey; desc: string; example: string } =>
-      r.kind === "field"
+    (r): r is { kind: "field"; key: BECFieldKey; desc: string; example: string } => r.kind === "field",
   );
   const hasPillars = section.rows.some((r) => r.kind === "pillars");
-
   const filledCount = fieldRows.filter((r) => bec.fields[r.key]?.trim()).length;
   const total = fieldRows.length;
 
+  const getFieldLayout = (row: { key: BECFieldKey; desc: string; example: string }) => {
+    const textWeight = `${row.desc} ${row.example}`.length;
+    const isCompact = textWeight < 120;
+
+    return {
+      wrapperClass: isCompact ? "xl:col-span-1" : "xl:col-span-2",
+      rows: isCompact ? 4 : 6,
+    };
+  };
+
   return (
-    <div className="rounded-2xl border border-white/7 bg-white/[0.018] overflow-hidden">
+    <section className="overflow-hidden rounded-2xl border border-white/7 bg-white/[0.018]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="group w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/[0.025] transition-colors"
+        className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-white/[0.025]"
       >
-        <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-white/80">{section.title}</p>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-white/85">{section.title}</p>
         </div>
-        {total > 0 && (
+        {total > 0 ? (
           <span
-            className={`shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-0.5 border ${
+            className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
               filledCount === total
-                ? "text-sky-300 bg-sky-300/10 border-sky-300/20"
+                ? "border-sky-300/20 bg-sky-300/10 text-sky-300"
                 : filledCount > 0
-                ? "text-amber-300 bg-amber-300/10 border-amber-300/20"
-                : "text-white/25 bg-white/5 border-white/8"
+                  ? "border-amber-300/20 bg-amber-300/10 text-amber-300"
+                  : "border-white/8 bg-white/5 text-white/30"
             }`}
           >
             {filledCount}/{total}
           </span>
-        )}
-        {hasPillars && (
-          <span className="shrink-0 text-[11px] text-white/25">{bec.pilares.length}p</span>
-        )}
+        ) : null}
+        {hasPillars ? <span className="text-[11px] text-white/30">{bec.pilares.length}p</span> : null}
         <span
-          className="shrink-0 text-sm text-white/20 transition-transform duration-200"
-          style={{ display: "inline-block", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+          className="text-sm text-white/22 transition-transform duration-200"
+          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
         >
           ▾
         </span>
       </button>
 
-      {open && (
-        <div className="border-t border-white/5 px-5 py-5 space-y-4">
-          {/* Field rows */}
-          {fieldRows.length > 0 && (
-            <div className="space-y-4">
+      {open ? (
+        <div className="space-y-4 border-t border-white/5 px-5 py-5">
+          {fieldRows.length > 0 ? (
+            <div className="grid gap-4 xl:grid-cols-2">
               {fieldRows.map((row) => (
-                <div key={row.key} className="rounded-xl border border-white/5 bg-white/[0.02] p-4 space-y-2">
+                <div
+                  key={row.key}
+                  className={`space-y-2 rounded-2xl border border-white/5 bg-white/[0.02] p-4 ${getFieldLayout(row).wrapperClass}`}
+                >
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-[12px] font-semibold text-white/60">{row.key}</p>
-                    {bec.fields[row.key]?.trim() && (
-                      <span className="text-[10px] font-semibold text-sky-400/70 shrink-0">✓</span>
-                    )}
+                    <p className="text-[12px] font-semibold text-white/68">{row.key}</p>
+                    {bec.fields[row.key]?.trim() ? (
+                      <span className="shrink-0 text-[10px] font-semibold text-sky-400/80">OK</span>
+                    ) : null}
                   </div>
-                  {row.desc && (
-                    <p className="text-[11px] text-white/30 leading-relaxed">{row.desc}</p>
-                  )}
+                  {row.desc ? <p className="text-[11px] leading-relaxed text-white/32">{row.desc}</p> : null}
                   <textarea
-                    rows={4}
+                    rows={getFieldLayout(row).rows}
                     value={bec.fields[row.key] ?? ""}
                     onChange={(e) =>
                       setBec((prev) => ({
@@ -216,21 +207,17 @@ function BecSection({
                       }))
                     }
                     placeholder={row.example}
-                    className="w-full rounded-xl border border-white/8 bg-white/[0.03] px-3.5 py-2.5 text-[12px] text-white/65 leading-relaxed placeholder:text-white/18 focus:outline-none focus:border-white/16 transition-all resize-none"
-                    style={{ fontFamily: "inherit" }}
+                    className="w-full rounded-2xl border border-white/8 bg-white/[0.03] px-3.5 py-3 text-[12px] leading-relaxed text-white/70 placeholder:text-white/18 transition-all focus:border-white/16 focus:outline-none resize-none"
                   />
                 </div>
               ))}
             </div>
-          )}
+          ) : null}
 
-          {/* Pillar rows */}
-          {hasPillars && (
+          {hasPillars ? (
             <div className="space-y-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/25">
-                Pilares de contenido
-              </p>
-              <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/28">Pilares de contenido</p>
+              <div className="space-y-3">
                 {bec.pilares.map((pilar, idx) => (
                   <PilarRow
                     key={`pilar-${idx}`}
@@ -246,23 +233,20 @@ function BecSection({
                   />
                 ))}
               </div>
-              <div className="flex gap-2 pt-1">
+              <div className="flex flex-wrap gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() =>
                     setBec((prev) => ({
                       ...prev,
-                      pilares: [
-                        ...prev.pilares,
-                        { pilar: "", porcentaje: "", canales: "", formatos: "" },
-                      ],
+                      pilares: [...prev.pilares, { pilar: "", porcentaje: "", canales: "", formatos: "" }],
                     }))
                   }
-                  className="flex items-center gap-1.5 rounded-xl border border-white/8 bg-white/[0.025] px-3.5 py-2 text-[12px] font-medium text-white/45 hover:border-white/14 hover:text-white/65 transition-all"
+                  className="rounded-xl border border-white/8 bg-white/[0.025] px-3.5 py-2 text-[12px] font-medium text-white/55 transition-all hover:border-white/14 hover:text-white/75"
                 >
-                  <span className="text-sky-400/80">+</span> Agregar pilar
+                  + Agregar pilar
                 </button>
-                {bec.pilares.length > 1 && (
+                {bec.pilares.length > 1 ? (
                   <button
                     type="button"
                     onClick={() =>
@@ -271,21 +255,19 @@ function BecSection({
                         pilares: prev.pilares.slice(0, -1),
                       }))
                     }
-                    className="flex items-center gap-1.5 rounded-xl border border-white/8 bg-white/[0.025] px-3.5 py-2 text-[12px] font-medium text-white/35 hover:border-red-400/20 hover:text-red-300/60 transition-all"
+                    className="rounded-xl border border-white/8 bg-white/[0.025] px-3.5 py-2 text-[12px] font-medium text-white/40 transition-all hover:border-red-400/20 hover:text-red-300/70"
                   >
-                    <span>−</span> Quitar último
+                    - Quitar ultimo
                   </button>
-                )}
+                ) : null}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
-      )}
-    </div>
+      ) : null}
+    </section>
   );
 }
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function BecEditor({
   empresaId,
@@ -303,14 +285,19 @@ export default function BecEditor({
   const [savingBec, setSavingBec] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const visibleSections = useMemo(
+    () => BEC_TEMPLATE.filter((section) => section.title !== "1. Datos Generales"),
+    [],
+  );
 
   const serializedBec = useMemo(() => JSON.stringify(bec), [bec]);
 
-  // Progress
-  const allFields = BEC_TEMPLATE.flatMap((s) =>
-    s.rows.filter((r): r is { kind: "field"; key: BECFieldKey; desc: string; example: string } => r.kind === "field")
+  const allFields = visibleSections.flatMap((section) =>
+    section.rows.filter(
+      (row): row is { kind: "field"; key: BECFieldKey; desc: string; example: string } => row.kind === "field",
+    ),
   );
-  const filledFields = allFields.filter((r) => bec.fields[r.key]?.trim()).length;
+  const filledFields = allFields.filter((row) => bec.fields[row.key]?.trim()).length;
   const progressPct = allFields.length > 0 ? Math.round((filledFields / allFields.length) * 100) : 0;
 
   async function generateBEC() {
@@ -324,9 +311,11 @@ export default function BecEditor({
         body: JSON.stringify({ company, bec }),
       });
       const data = (await res.json()) as { error?: string; bec?: BECState };
-      if (!res.ok || data.error || !data.bec) throw new Error(data.error || "No se pudo generar BEC");
+      if (!res.ok || data.error || !data.bec) {
+        throw new Error(data.error || "No se pudo generar BEC");
+      }
       setBec(data.bec);
-      setStatus("BEC generado con IA. Revisa los campos y guarda cuando estés listo.");
+      setStatus("BEC generado con IA. Revisa el contenido y guarda cuando este listo.");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
@@ -343,6 +332,11 @@ export default function BecEditor({
       const fd = new FormData();
       fd.set("empresa_id", empresaId);
       fd.set("contenido", serializedBec);
+      fd.set("marca", company.marca);
+      fd.set("industria", company.industria);
+      fd.set("pais", company.pais);
+      fd.set("objetivo", company.objetivo);
+      fd.set("problema", company.problema);
       await saveBec(fd);
       setStatus("BEC guardado correctamente.");
       router.refresh();
@@ -354,124 +348,158 @@ export default function BecEditor({
   }
 
   return (
-    <div className="space-y-4">
-
-      {/* ── Context card ──────────────────────────────────────────── */}
-      <section className="rounded-2xl border border-white/8 bg-white/[0.018] p-5 space-y-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-50 animate-ping" style={{ animationDuration: "2s" }} />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-400" />
-              </span>
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.12em] text-sky-300/70">
-                Contexto base
-              </h2>
+    <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)] 2xl:grid-cols-[340px_minmax(0,1fr)]">
+      <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+        <section className="space-y-5 rounded-3xl border border-white/8 bg-white/[0.02] p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="mb-1 flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span
+                    className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-50"
+                    style={{ animationDuration: "2s" }}
+                  />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-400" />
+                </span>
+                <h2 className="text-[11px] font-bold uppercase tracking-[0.12em] text-sky-300/75">
+                  Contexto base
+                </h2>
+              </div>
+              <p className="max-w-xs text-[12px] leading-relaxed text-white/38">
+                Completa los datos clave para generar y editar el BEC con mas contexto.
+              </p>
             </div>
-            <p className="text-[12px] text-white/35 leading-relaxed">
-              Completa el contexto y genera el BEC con IA, o edita los campos directamente.
-            </p>
+            <div className="text-right">
+              <p className="text-[24px] font-bold leading-none text-white">{progressPct}%</p>
+              <p className="mt-0.5 text-[10px] uppercase tracking-wider text-white/25">completado</p>
+            </div>
           </div>
-          <div className="shrink-0 text-right">
-            <p className="text-[22px] font-bold text-white leading-none">{progressPct}%</p>
-            <p className="text-[10px] text-white/25 uppercase tracking-wider mt-0.5">completado</p>
+
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/6">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-sky-500 to-blue-400 transition-all duration-500"
+              style={{ width: `${progressPct}%` }}
+            />
           </div>
-        </div>
 
-        {/* Progress bar */}
-        <div className="h-1 w-full rounded-full bg-white/6 overflow-hidden">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-sky-500 to-blue-400 transition-all duration-500"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
+          <div className="grid gap-3 xl:grid-cols-2">
+            <Field label="Cliente" value={company.negocio} onChange={(v) => setCompany((p) => ({ ...p, negocio: v }))} />
+            <Field label="Marca" value={company.marca} onChange={(v) => setCompany((p) => ({ ...p, marca: v }))} />
+            <Field
+              label="Industria del negocio"
+              value={company.industria}
+              onChange={(v) => setCompany((p) => ({ ...p, industria: v }))}
+            />
+            <Field label="Pais" value={company.pais} onChange={(v) => setCompany((p) => ({ ...p, pais: v }))} />
+            <div className="xl:col-span-2">
+              <Field
+                label="Objetivo"
+                value={company.objetivo}
+                multiline
+                rows={5}
+                placeholder="Que quiere lograr la empresa?"
+                onChange={(v) => setCompany((p) => ({ ...p, objetivo: v }))}
+              />
+            </div>
+            <div className="xl:col-span-2">
+              <Field
+                label="Problema"
+                value={company.problema}
+                multiline
+                rows={5}
+                placeholder="Que problema queremos resolver?"
+                onChange={(v) => setCompany((p) => ({ ...p, problema: v }))}
+              />
+            </div>
+          </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Cliente" value={company.negocio}
-            onChange={(v) => setCompany((p) => ({ ...p, negocio: v }))} />
-          <Field label="Marca" value={company.marca}
-            onChange={(v) => setCompany((p) => ({ ...p, marca: v }))} />
-          <Field label="Industria del negocio" value={company.industria}
-            onChange={(v) => setCompany((p) => ({ ...p, industria: v }))} />
-          <Field label="País" value={company.pais}
-            onChange={(v) => setCompany((p) => ({ ...p, pais: v }))} />
-          <Field label="Objetivo" value={company.objetivo} multiline rows={5}
-            placeholder="¿Qué quiere lograr la empresa?"
-            onChange={(v) => setCompany((p) => ({ ...p, objetivo: v }))} />
-          <Field label="Problema" value={company.problema} multiline rows={5}
-            placeholder="¿Qué problema queremos resolver?"
-            onChange={(v) => setCompany((p) => ({ ...p, problema: v }))} />
-        </div>
+          <button
+            type="button"
+            onClick={generateBEC}
+            disabled={loadingBec}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-600/20 transition-all hover:bg-sky-500 disabled:opacity-50"
+          >
+            {loadingBec ? (
+              <>
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Generando BEC...
+              </>
+            ) : (
+              <>
+                <Sparkles size={14} />
+                Generar BEC con IA
+              </>
+            )}
+          </button>
+        </section>
 
-        <button
-          type="button"
-          onClick={generateBEC}
-          disabled={loadingBec}
-          className="flex items-center gap-2 rounded-xl bg-sky-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-600/20 transition-all hover:bg-sky-500 hover:shadow-sky-500/25 disabled:opacity-50"
-        >
-          {loadingBec ? (
-            <>
-              <span className="h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-              Generando BEC…
-            </>
-          ) : (
-            <>
-              <span className="text-white/60">✦</span>
-              Generar BEC con IA
-            </>
-          )}
-        </button>
-      </section>
+        <section className="rounded-3xl border border-white/8 bg-white/[0.015] p-4">
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-white/28">
+            <LayoutPanelLeft size={13} />
+            Resumen
+          </div>
+          <div className="mt-4 grid gap-2">
+            <SummaryRow label="Version" value={`v${becVersion}`} />
+            <SummaryRow label="Campos" value={`${filledFields}/${allFields.length}`} />
+            <SummaryRow label="Pilares" value={`${bec.pilares.length}`} />
+          </div>
+        </section>
+      </aside>
 
-      {/* ── BEC sections ──────────────────────────────────────────── */}
-      <div className="space-y-2">
+      <div className="space-y-4">
         <div className="flex items-center justify-between px-1">
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/25">
-            BEC — formato completo
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[11px] text-white/20">v{becVersion}</span>
-            <span className="text-[11px] text-white/20">·</span>
-            <span className="text-[11px] text-white/30">{filledFields}/{allFields.length} campos</span>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/28">BEC - formato completo</p>
+            <p className="mt-1 text-[12px] text-white/32">Secciones compactas para trabajar mejor en escritorio.</p>
           </div>
         </div>
 
-        {BEC_TEMPLATE.map((section) => (
-          <BecSection key={section.title} section={section} bec={bec} setBec={setBec} />
-        ))}
-      </div>
-
-      {/* ── Feedback messages ─────────────────────────────────────── */}
-      {(status || error) && (
-        <div className={`rounded-xl border px-4 py-3 text-[12px] ${
-          error
-            ? "border-red-400/20 bg-red-400/8 text-red-300"
-            : "border-emerald-400/20 bg-emerald-400/8 text-emerald-300"
-        }`}>
-          {error || status}
+        <div className="space-y-3">
+          {visibleSections.map((section) => (
+            <BecSection key={section.title} section={section} bec={bec} setBec={setBec} />
+          ))}
         </div>
-      )}
 
-      {/* ── Save ──────────────────────────────────────────────────── */}
-      <form onSubmit={handleSaveBEC} className="pt-2 flex justify-end">
-        <button
-          disabled={savingBec}
-          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500 disabled:opacity-50"
-        >
-          {savingBec ? (
-            <>
-              <span className="h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-              Guardando…
-            </>
-          ) : (
-            <>
-              <span className="text-white/70">↑</span>
-              Guardar BEC
-            </>
-          )}
-        </button>
-      </form>
+        {status || error ? (
+          <div
+            className={`rounded-2xl border px-4 py-3 text-[12px] ${
+              error
+                ? "border-red-400/20 bg-red-400/8 text-red-300"
+                : "border-emerald-400/20 bg-emerald-400/8 text-emerald-300"
+            }`}
+          >
+            {error || status}
+          </div>
+        ) : null}
+
+        <form onSubmit={handleSaveBEC} className="flex justify-end pt-2">
+          <button
+            disabled={savingBec}
+            className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {savingBec ? (
+              <>
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Guardando...
+              </>
+            ) : (
+              <>
+                <Save size={14} />
+                Guardar BEC
+              </>
+            )}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-white/7 bg-white/[0.02] px-3 py-2.5">
+      <span className="text-[12px] text-white/38">{label}</span>
+      <span className="text-[12px] font-semibold text-white/75">{value}</span>
     </div>
   );
 }

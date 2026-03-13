@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import BriefEditor from "@/app/protected/empresas/[empresaId]/briefs/BriefEditor";
 import { BRIEF_TEXT_FIELDS, loadBriefForm } from "@/lib/brief/schema";
 import { createClient } from "@/lib/supabase/server";
 
@@ -60,9 +59,6 @@ export default async function EmpresaBriefsPage({ params }: BriefsPageProps) {
   if (!empresa) notFound();
 
   const briefsList = briefs ?? [];
-  const latestBrief = briefsList[0] ?? null;
-  const initialPeriodo = latestBrief?.periodo ? latestBrief.periodo.slice(0, 7) : undefined;
-  const initialFormState = loadBriefForm(latestBrief?.contenido_json);
 
   const monthFmt = new Intl.DateTimeFormat("es-PE", {
     month: "long",
@@ -72,7 +68,7 @@ export default async function EmpresaBriefsPage({ params }: BriefsPageProps) {
 
   const STATUS_CLS: Record<string, string> = {
     aprobado: "text-teal-300 bg-teal-300/10 border-teal-300/20",
-    draft: "text-amber-300 bg-amber-300/10 border-amber-300/20",
+    plan: "text-cyan-300 bg-cyan-300/10 border-cyan-300/20",
     borrador: "text-amber-300 bg-amber-300/10 border-amber-300/20",
     revision: "text-sky-300 bg-sky-300/10 border-sky-300/20",
   };
@@ -136,14 +132,36 @@ export default async function EmpresaBriefsPage({ params }: BriefsPageProps) {
             ))}
           </div>
 
-          <div className="fu d2">
-            <BriefEditor
-              key={`${latestBrief?.id ?? "new"}-${latestBrief?.version ?? 0}`}
-              empresaId={empresaId}
-              initialPeriodo={initialPeriodo}
-              initialFormState={initialFormState}
-            />
-          </div>
+          <section className="fu d2 space-y-3">
+            <div className="rounded-2xl border border-white/8 bg-white/[0.018] p-4">
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/30">
+                Acciones
+              </h2>
+              <p className="mt-2 text-[12px] text-white/35">
+                Selecciona un brief para editarlo o crea uno nuevo.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  href={`/protected/empresas/${empresaId}/briefs/new`}
+                  className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 transition-all hover:bg-emerald-300/20"
+                >
+                  + Nuevo brief
+                </Link>
+                {briefsList.slice(0, 6).map((brief) => {
+                  const periodLabel = monthFmt.format(new Date(`${brief.periodo}T00:00:00.000Z`));
+                  return (
+                    <Link
+                      key={brief.id}
+                      href={`/protected/empresas/${empresaId}/briefs/${brief.id}`}
+                      className="rounded-lg border bd8 bg-w3 px-3 py-1.5 text-[11px] font-medium text-white/60 transition-all hover:text-white/85"
+                    >
+                      {periodLabel} · v{brief.version}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
 
           <section className="fu d3 space-y-3">
             <div className="flex items-center justify-between">
@@ -194,7 +212,7 @@ export default async function EmpresaBriefsPage({ params }: BriefsPageProps) {
               <div className="rounded-2xl border bd7 bg-w2 px-6 py-12 text-center">
                 <p className="text-[13px] font-medium text-white/25">Sin briefs registrados</p>
                 <p className="mt-1.5 text-[11px] text-white/15 leading-relaxed">
-                  Crea tu primer brief con el formulario de arriba.
+                  Crea tu primer brief con el boton &quot;Nuevo brief&quot;.
                 </p>
               </div>
             )}

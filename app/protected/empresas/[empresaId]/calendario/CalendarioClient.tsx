@@ -30,6 +30,7 @@ export type CalendarioArtifact = {
 type Props = {
   empresaId: string;
   empresaNombre: string;
+  alcanceCalendario: string;
   planes: PlanArtifact[];
   calendarios: CalendarioArtifact[];
 };
@@ -49,6 +50,12 @@ type Semana = {
   piezas?: Pieza[];
 };
 
+type CalendarioItem = {
+  id?: string;
+  canal?: string;
+  semana?: number;
+};
+
 const monthFormatter = new Intl.DateTimeFormat("es-PE", {
   month: "long",
   year: "numeric",
@@ -66,7 +73,7 @@ function fmt(periodo: string) {
 const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
   approved: { bg: "bg-emerald-500/15", text: "text-emerald-400", dot: "bg-emerald-400" },
   aprobado: { bg: "bg-emerald-500/15", text: "text-emerald-400", dot: "bg-emerald-400" },
-  draft: { bg: "bg-amber-500/15", text: "text-amber-400", dot: "bg-amber-400" },
+  plan: { bg: "bg-cyan-500/15", text: "text-cyan-400", dot: "bg-cyan-400" },
   borrador: { bg: "bg-amber-500/15", text: "text-amber-400", dot: "bg-amber-400" },
   revision: { bg: "bg-sky-500/15", text: "text-sky-400", dot: "bg-sky-400" },
 };
@@ -109,6 +116,21 @@ function asSemanas(value: unknown): Semana[] {
   });
 }
 
+function asCalendarioItems(value: unknown): CalendarioItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((row) => {
+    const obj = asObj(row);
+    return {
+      id: typeof obj.id === "string" ? obj.id : "",
+      canal: typeof obj.canal === "string" ? obj.canal : "",
+      semana:
+        typeof obj.semana === "number"
+          ? obj.semana
+          : Number.parseInt(String(obj.semana ?? ""), 10) || 1,
+    };
+  });
+}
+
 function StatusBadge({ status }: { status: string }) {
   const s = statusStyle(status);
   return (
@@ -129,9 +151,13 @@ function CalendarioLinkButton({
   const content = asObj(item.content_json);
   const inputs = asObj(item.inputs_json);
   const weeks = asSemanas(content.semanas);
+  const items = asCalendarioItems(asObj(content.calendario).items);
   const periodo = typeof inputs.periodo === "string" ? inputs.periodo : "";
   const label = periodo ? fmt(periodo) : item.title;
-  const totalPiezas = weeks.reduce((acc, w) => acc + (Array.isArray(w.piezas) ? w.piezas.length : 0), 0);
+  const totalPiezas =
+    items.length > 0
+      ? items.length
+      : weeks.reduce((acc, w) => acc + (Array.isArray(w.piezas) ? w.piezas.length : 0), 0);
 
   return (
     <Link
@@ -172,7 +198,13 @@ function GenerateButton() {
   );
 }
 
-export default function CalendarioClient({ empresaId, empresaNombre, planes, calendarios }: Props) {
+export default function CalendarioClient({
+  empresaId,
+  empresaNombre,
+  alcanceCalendario,
+  planes,
+  calendarios,
+}: Props) {
   const [selectedPlan, setSelectedPlan] = useState(planes[0]?.id ?? "");
 
   return (
@@ -222,9 +254,13 @@ export default function CalendarioClient({ empresaId, empresaNombre, planes, cal
           </div>
           <div className="rounded-xl border border-white/7 bg-white/2 p-4">
             <p className="text-2xl font-bold text-white">
-              {calendarios.reduce((a, c) => a + asSemanas(asObj(c.content_json).semanas).length, 0)}
+              {calendarios.reduce((a, c) => {
+                const content = asObj(c.content_json);
+                const items = asCalendarioItems(asObj(content.calendario).items);
+                return a + (items.length > 0 ? items.length : asSemanas(content.semanas).length);
+              }, 0)}
             </p>
-            <p className="mt-0.5 text-xs text-white/35">Semanas totales</p>
+            <p className="mt-0.5 text-xs text-white/35">Items totales</p>
           </div>
           <div className="rounded-xl border border-white/7 bg-white/2 p-4">
             <p className="text-2xl font-bold text-white">{planes.length}</p>
@@ -239,29 +275,33 @@ export default function CalendarioClient({ empresaId, empresaNombre, planes, cal
           </p>
 
           {planes.length > 0 ? (
-            <form action={generateCalendarioDraft} className="flex flex-col sm:flex-row gap-3">
+            <form action={generateCalendarioDraft} className="flex flex-col gap-3">
               <input type="hidden" name="empresa_id" value={empresaId} />
-              <div className="flex-1">
-                <label className="block text-xs text-white/30 mb-1.5 ml-0.5">Plan base</label>
-                <select
-                  name="plan_artifact_id"
-                  value={selectedPlan}
-                  onChange={(e) => setSelectedPlan(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white/80 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition-all"
-                  required
-                >
-                  {planes.map((plan) => {
-                    const inputs = asObj(plan.inputs_json);
-                    const periodo = typeof inputs.periodo === "string" ? inputs.periodo : "";
-                    const label = periodo ? fmt(periodo) : plan.title;
-                    return (
-                      <option key={plan.id} value={plan.id} style={{ background: "#18181b" }}>
-                        {label} - {plan.status} - v{plan.version}
-                      </option>
-                    );
-                  })}
-                </select>
+              <input type="hidden" name="alcance_calendario" value={alcanceCalendario} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex-1">
+                  <label className="block text-xs text-white/30 mb-1.5 ml-0.5">Plan base</label>
+                  <select
+                    name="plan_artifact_id"
+                    value={selectedPlan}
+                    onChange={(e) => setSelectedPlan(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white/80 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                    required
+                  >
+                    {planes.map((plan) => {
+                      const inputs = asObj(plan.inputs_json);
+                      const periodo = typeof inputs.periodo === "string" ? inputs.periodo : "";
+                      const label = periodo ? fmt(periodo) : plan.title;
+                      return (
+                        <option key={plan.id} value={plan.id} style={{ background: "#18181b" }}>
+                          {label} - {plan.status} - v{plan.version}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
               </div>
+
               <div className="sm:self-end">
                 <GenerateButton />
               </div>

@@ -98,6 +98,14 @@ export default function EmpresaDashboard({ empresa, bec, docsCount }: Props) {
                   {empresa.pais}
                 </span>
               )}
+              {bec && (
+                <span className="inline-block rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
+                  BEC v{bec.version}
+                </span>
+              )}
+              <span className="inline-block rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
+                {docsCount} docs
+              </span>
             </div>
           </div>
         </div>

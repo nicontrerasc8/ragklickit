@@ -33,8 +33,6 @@ type Props = {
   planes: PlanItem[];
 };
 
-type Workstream = { tareas?: unknown[] };
-
 const monthFmt = new Intl.DateTimeFormat("es-PE", {
   month: "long",
   year: "numeric",
@@ -53,19 +51,11 @@ function asObj(v: unknown): JsonObj {
   return v && typeof v === "object" ? (v as JsonObj) : {};
 }
 
-function asWorkstreams(v: unknown): Workstream[] {
-  if (!Array.isArray(v)) return [];
-  return v.map((row) => {
-    const o = asObj(row);
-    return { tareas: Array.isArray(o.tareas) ? o.tareas : [] };
-  });
-}
-
 const STATUS_MAP: Record<string, string> = {
   aprobado: "text-teal-300 bg-teal-300/10 border-teal-300/20",
   approved: "text-teal-300 bg-teal-300/10 border-teal-300/20",
+  plan: "text-cyan-300 bg-cyan-300/10 border-cyan-300/20",
   borrador: "text-amber-300 bg-amber-300/10 border-amber-300/20",
-  draft: "text-amber-300 bg-amber-300/10 border-amber-300/20",
   revision: "text-sky-300 bg-sky-300/10 border-sky-300/20",
 };
 
@@ -123,9 +113,6 @@ function PlanLinkButton({
   plan: PlanItem;
 }) {
   const inputs = asObj(plan.inputs_json);
-  const content = asObj(plan.content_json);
-  const workstreams = asWorkstreams(content.workstreams);
-  const totalTareas = workstreams.reduce((a, w) => a + (w.tareas?.length ?? 0), 0);
   const periodo = typeof inputs.periodo === "string" ? inputs.periodo : "";
   const label = periodo ? fmtPeriodo(periodo) : plan.title;
 
@@ -140,8 +127,6 @@ function PlanLinkButton({
           <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
             <StatusBadge status={plan.status} />
             <span className="font-mono text-[11px] text-white/25">v{plan.version}</span>
-            <span className="text-[11px] text-white/25">{workstreams.length} workstreams</span>
-            <span className="text-[11px] text-white/25">{totalTareas} tareas</span>
           </div>
         </div>
         <span className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-medium text-white/55">Ver plan</span>
@@ -152,7 +137,6 @@ function PlanLinkButton({
 
 export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, planes }: Props) {
   const [selectedBrief, setSelectedBrief] = useState(briefs[0]?.id ?? "");
-  const totalWorkstreams = planes.reduce((a, p) => a + asWorkstreams(asObj(p.content_json).workstreams).length, 0);
 
   return (
     <>
@@ -228,9 +212,8 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
             </div>
           </header>
 
-          <div className="fu d1 grid grid-cols-3 gap-2.5">
+          <div className="fu d1 grid grid-cols-2 gap-2.5">
             <StatTile value={planes.length} label="Planes" />
-            <StatTile value={totalWorkstreams} label="Workstreams" />
             <StatTile value={briefs.length} label="Briefs" />
           </div>
 
@@ -245,29 +228,47 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
               </h2>
             </div>
             <p className="mb-4 text-[12px] text-white/35 leading-relaxed pl-4.5">
-              La IA usara el contexto de agencia, empresa, BEC y el BRIEF seleccionado para armar el plan.
+              La IA usara el contexto de agencia, empresa, BEC, el BRIEF seleccionado y un PDF opcional de apoyo para armar el plan.
             </p>
 
             {briefs.length > 0 ? (
-              <form action={generatePlanTrabajoDraft} className="flex flex-col sm:flex-row gap-3">
+              <form action={generatePlanTrabajoDraft} className="space-y-3">
                 <input type="hidden" name="empresa_id" value={empresaId} />
-                <div className="flex-1 space-y-1.5">
-                  <label className="block text-[11px] font-medium text-white/30 pl-0.5">Brief base</label>
-                  <select
-                    name="brief_id"
-                    value={selectedBrief}
-                    onChange={(e) => setSelectedBrief(e.target.value)}
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-white/75 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
-                    style={{ fontFamily: "inherit" }}
-                    required
-                  >
-                    {briefs.map((b) => (
-                      <option key={b.id} value={b.id} style={{ background: "#13131a" }}>
-                        {fmtPeriodo(b.periodo)} - {b.estado} - v{b.version}
-                      </option>
-                    ))}
-                  </select>
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-medium text-white/30 pl-0.5">Brief base</label>
+                    <select
+                      name="brief_id"
+                      value={selectedBrief}
+                      onChange={(e) => setSelectedBrief(e.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-white/75 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
+                      style={{ fontFamily: "inherit" }}
+                      required
+                    >
+                      {briefs.map((b) => (
+                        <option key={b.id} value={b.id} style={{ background: "#13131a" }}>
+                          {fmtPeriodo(b.periodo)} - {b.estado} - v{b.version}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-medium text-white/30 pl-0.5">
+                      PDF de apoyo
+                    </label>
+                    <input
+                      type="file"
+                      name="support_file"
+                      accept=".pdf,.txt,.md,.csv,.json,.html,.xml,.docx,.xlsx"
+                      className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-xs text-white/60 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white/75"
+                    />
+                  </div>
                 </div>
+
+                <p className="text-[11px] text-white/28">
+                  Opcional. Sube un PDF o documento con informacion comercial, estrategia o referencias para que la IA lo use en esta generacion.
+                </p>
+
                 <div className="sm:self-end">
                   <GenerateButton />
                 </div>
