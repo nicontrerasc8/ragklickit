@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { connection } from "next/server";
+import { Suspense } from "react";
 import { ArrowRight, BookOpenText, Building2, CalendarCheck2, Sparkles } from "lucide-react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Button } from "@/components/ui/button";
@@ -24,9 +24,7 @@ const highlights = [
   },
 ];
 
-export default async function Home() {
-  await connection();
-
+async function UserRedirectGate() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -36,8 +34,16 @@ export default async function Home() {
     redirect("/protected");
   }
 
+  return null;
+}
+
+export default function Home() {
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30">
+      <Suspense fallback={null}>
+        <UserRedirectGate />
+      </Suspense>
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 sm:px-6">
         <nav className="mt-4 flex h-16 items-center justify-between border px-4 sm:px-5">
           <Link href="/" className="text-sm font-semibold tracking-wide">
