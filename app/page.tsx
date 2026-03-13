@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { ArrowRight, BookOpenText, Building2, CalendarCheck2, Sparkles } from "lucide-react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,8 @@ const highlights = [
 ];
 
 export default async function Home() {
+  await connection();
+
   const supabase = await createClient();
   const {
     data: { user },
