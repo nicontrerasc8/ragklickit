@@ -38,20 +38,30 @@ function normalizeChannelName(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
-function extractAlcance(metadata: unknown) {
-  const base = Object.fromEntries(ALCANCE_CHANNELS.map((channel) => [channel, 0])) as Record<string, number>;
-  if (!metadata || typeof metadata !== "object") return base;
+function buildDefaultAlcance() {
+  return Object.fromEntries(ALCANCE_CHANNELS.map((channel) => [channel, 0])) as Record<string, number>;
+}
 
-  const raw = (metadata as Record<string, unknown>).alcance_calendario;
-  if (!raw || typeof raw !== "object") return base;
+function extractAlcance(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object") return buildDefaultAlcance();
+
+  const metadataRecord = metadata as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(metadataRecord, "alcance_calendario")) {
+    return buildDefaultAlcance();
+  }
+
+  const raw = metadataRecord.alcance_calendario;
+  if (!raw || typeof raw !== "object") return {};
+
+  const alcance: Record<string, number> = {};
 
   for (const [channelRaw, value] of Object.entries(raw as Record<string, unknown>)) {
     const channel = normalizeChannelName(channelRaw);
     if (!channel) continue;
-    base[channel] = clampCount(value);
+    alcance[channel] = clampCount(value);
   }
 
-  return base;
+  return alcance;
 }
 
 function buildAlcanceJson(alcance: Record<string, number>) {
