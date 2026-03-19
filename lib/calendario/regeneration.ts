@@ -56,7 +56,7 @@ export async function regenerateCalendarioItem(params: {
       "Reglas:",
       "1) Devuelve SOLO JSON.",
       "2) No cambies fecha, id, semana, orden_semana ni estado.",
-      "3) Mantén coherencia con el canal y formato declarados.",
+      "3) Manten coherencia con el canal y formato declarados.",
       "4) titulo_base, tema y subtema deben ser concretos y distintos entre si cuando aplique.",
       "5) CTA y mensaje_clave deben ser accionables, no genericos.",
       "6) hashtags debe ser un array de strings.",
@@ -98,6 +98,7 @@ export async function regenerateCalendarioContent(params: {
   content: unknown;
   customPrompt?: string;
 }) {
+  const { customPrompt } = params;
   const normalized = normalizeCalendarioContent(params.content);
   const fallback = normalized.calendario.items.map((item) => itemShapeFromAI(item));
 
