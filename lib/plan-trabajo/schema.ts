@@ -123,6 +123,19 @@ function normalizeIdeas(value: unknown): IdeaContenido[] {
     .filter((item) => item.canal || item.ideas.length > 0);
 }
 
+function filterRowsByScope<T extends { red: string } | { canal: string }>(
+  rows: T[],
+  alcance: Record<string, number>,
+) {
+  const allowedChannels = new Set(Object.keys(alcance));
+  if (allowedChannels.size === 0) return rows;
+
+  return rows.filter((row) => {
+    const channel = "red" in row ? row.red : row.canal;
+    return allowedChannels.has(channel);
+  });
+}
+
 export function normalizeAlcanceCalendario(value: unknown) {
   if (!value || typeof value !== "object") return {} as Record<string, number>;
 
@@ -177,6 +190,25 @@ export function normalizePlanTrabajo(input: unknown, fallback?: PlanTrabajo): Pl
   const source = asObj(input);
   const periodo = asObj(source.periodo);
   const resumen = asObj(source.resumen_actualizaciones);
+  const alcance_calendario = (() => {
+    const normalized = normalizeAlcanceCalendario(source.alcance_calendario);
+    return Object.keys(normalized).length > 0 ? normalized : base.alcance_calendario;
+  })();
+  const comunidad = (() => {
+    const normalized = normalizeComunidad(source.comunidad);
+    const safeRows = normalized.length > 0 ? normalized : base.comunidad;
+    return filterRowsByScope(safeRows, alcance_calendario);
+  })();
+  const cantidad_contenidos = (() => {
+    const normalized = normalizeCantidadContenidos(source.cantidad_contenidos);
+    const safeRows = normalized.length > 0 ? normalized : base.cantidad_contenidos;
+    return filterRowsByScope(safeRows, alcance_calendario);
+  })();
+  const contenido_sugerido = (() => {
+    const normalized = normalizeIdeas(source.contenido_sugerido);
+    const safeRows = normalized.length > 0 ? normalized : base.contenido_sugerido;
+    return filterRowsByScope(safeRows, alcance_calendario);
+  })();
 
   return {
     cliente: asString(source.cliente, base.cliente),
@@ -187,10 +219,7 @@ export function normalizePlanTrabajo(input: unknown, fallback?: PlanTrabajo): Pl
       inicio: asString(periodo.inicio, base.periodo.inicio),
       fin: asString(periodo.fin, base.periodo.fin),
     },
-    comunidad: (() => {
-      const normalized = normalizeComunidad(source.comunidad);
-      return normalized.length > 0 ? normalized : base.comunidad;
-    })(),
+    comunidad,
     resumen_actualizaciones: {
       gestion_redes: asString(
         resumen.gestion_redes,
@@ -201,18 +230,12 @@ export function normalizePlanTrabajo(input: unknown, fallback?: PlanTrabajo): Pl
         return normalized.length > 0 ? normalized : base.resumen_actualizaciones.observaciones;
       })(),
     },
-    cantidad_contenidos: (() => {
-      const normalized = normalizeCantidadContenidos(source.cantidad_contenidos);
-      return normalized.length > 0 ? normalized : base.cantidad_contenidos;
-    })(),
+    cantidad_contenidos,
     pilares_comunicacion: (() => {
       const normalized = normalizePilares(source.pilares_comunicacion);
       return normalized.length > 0 ? normalized : base.pilares_comunicacion;
     })(),
-    contenido_sugerido: (() => {
-      const normalized = normalizeIdeas(source.contenido_sugerido);
-      return normalized.length > 0 ? normalized : base.contenido_sugerido;
-    })(),
+    contenido_sugerido,
     productos_servicios_destacar: (() => {
       const normalized = asStringArray(source.productos_servicios_destacar);
       return normalized.length > 0 ? normalized : base.productos_servicios_destacar;
@@ -236,10 +259,7 @@ export function normalizePlanTrabajo(input: unknown, fallback?: PlanTrabajo): Pl
       const normalized = asStringArray(source.pendientes_cliente);
       return normalized.length > 0 ? normalized : base.pendientes_cliente;
     })(),
-    alcance_calendario: (() => {
-      const normalized = normalizeAlcanceCalendario(source.alcance_calendario);
-      return Object.keys(normalized).length > 0 ? normalized : base.alcance_calendario;
-    })(),
+    alcance_calendario,
   };
 }
 

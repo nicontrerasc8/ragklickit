@@ -1,10 +1,20 @@
   import Link from "next/link";
+  import { unstable_noStore as noStore } from "next/cache";
   import { notFound, redirect } from "next/navigation";
 
+  import WorkflowPanel from "@/components/aba/WorkflowPanel";
+  import { updateBecApproval } from "@/app/protected/actions";
   import BecEditor from "@/app/protected/empresas/[empresaId]/bec/BecEditor";
   import BecPdfExportButton from "@/app/protected/empresas/[empresaId]/bec/BecPdfExportButton";
-  import { CompanyForm, DEFAULT_COMPANY, loadBECState } from "@/lib/bec/schema";
+  import {
+    CompanyForm,
+    DEFAULT_COMPANY,
+    deriveMonthlyDeliverablesFromMetadata,
+    loadBECState,
+  } from "@/lib/bec/schema";
+  import { pickGlobalScores } from "@/lib/rag/scoring";
   import { createClient } from "@/lib/supabase/server";
+  import { readWorkflow } from "@/lib/workflow";
 
   const PAGE_STYLES = `
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -32,6 +42,7 @@
   };
 
   export default async function EmpresaBecPage({ params }: BecPageProps) {
+    noStore();
     const { empresaId } = await params;
     const supabase = await createClient();
     const {
@@ -55,7 +66,7 @@
         .maybeSingle(),
       supabase
         .from("bec")
-        .select("id, version, contenido_json, updated_at")
+        .select("id, version, contenido_json, updated_at, is_locked")
         .eq("empresa_id", empresaId)
         .maybeSingle(),
     ]);
@@ -80,6 +91,26 @@
       problema: typeof metadata.problema === "string" ? (metadata.problema as string) : "",
     };
     const becInitial = loadBECState(bec?.contenido_json);
+    const monthlyDeliverables = deriveMonthlyDeliverablesFromMetadata(metadata);
+    if (monthlyDeliverables) {
+      becInitial.fields["Entregables Mensuales"] = monthlyDeliverables;
+    }
+    const { data: becScoreRows } = bec?.id
+      ? await supabase
+          .from("rag_scores")
+          .select("score_type, entity_level, score_value, created_at")
+          .eq("bec_id", bec.id)
+          .order("created_at", { ascending: false })
+      : {
+          data: [] as Array<{
+            score_type: string;
+            entity_level: string;
+            score_value: number;
+            created_at: string;
+          }>,
+        };
+    const becScores = pickGlobalScores(becScoreRows ?? []);
+    const workflow = readWorkflow(bec?.contenido_json);
 
     const becVersion = bec?.version ?? 0;
     const lastUpdated = bec?.updated_at
@@ -90,6 +121,9 @@
           timeZone: "UTC",
         }).format(new Date(bec.updated_at))
       : null;
+
+    const scoreLabel = (value?: number) =>
+      typeof value === "number" ? `${Math.round(value * 100)}%` : "Sin score";
 
     return (
       <>
@@ -129,6 +163,17 @@
                   {lastUpdated ? (
                     <p className="mt-1 text-[11px] text-white/25">Actualizado: {lastUpdated}</p>
                   ) : null}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-lg border bd8 bg-w3 px-3 py-1.5 text-[11px] font-medium text-white/55">
+                      Confianza {scoreLabel(becScores.confidence)}
+                    </span>
+                    <span className="rounded-lg border bd8 bg-w3 px-3 py-1.5 text-[11px] font-medium text-white/55">
+                      Calidad {scoreLabel(becScores.data_quality)}
+                    </span>
+                    <span className="rounded-lg border bd8 bg-w3 px-3 py-1.5 text-[11px] font-medium text-white/55">
+                      Riesgo {scoreLabel(becScores.risk)}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0 pb-0.5">
                   <BecPdfExportButton
@@ -156,11 +201,45 @@
             </header>
 
             <div className="fu d2">
+              <WorkflowPanel
+                workflow={workflow}
+                actions={
+                  bec?.id ? (
+                    <>
+                      <form action={updateBecApproval}>
+                        <input type="hidden" name="empresa_id" value={empresaId} />
+                        <input type="hidden" name="bec_id" value={bec.id} />
+                        <input type="hidden" name="approval_action" value="approve" />
+                        <button className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-100 transition-colors hover:bg-emerald-400/20">
+                          Aprobar BEC
+                        </button>
+                      </form>
+                      <form action={updateBecApproval}>
+                        <input type="hidden" name="empresa_id" value={empresaId} />
+                        <input type="hidden" name="bec_id" value={bec.id} />
+                        <input type="hidden" name="approval_action" value="reopen" />
+                        <button className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-white/70 transition-colors hover:text-white">
+                          Reabrir BEC
+                        </button>
+                      </form>
+                    </>
+                  ) : null
+                }
+              />
+            </div>
+
+            <div className="fu d2">
               <BecEditor
+                key={`${bec?.id ?? "bec"}-${becVersion}-${becScores.confidence ?? "na"}-${becScores.data_quality ?? "na"}-${becScores.risk ?? "na"}`}
                 empresaId={empresaId}
                 initialCompany={companyInitial}
                 initialBec={becInitial}
                 becVersion={becVersion}
+                initialScores={{
+                  confidence: becScores.confidence,
+                  data_quality: becScores.data_quality,
+                  risk: becScores.risk,
+                }}
               />
             </div>
           </div>

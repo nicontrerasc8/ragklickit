@@ -8,7 +8,6 @@ import { updatePlanTrabajoArtifact } from "@/app/protected/actions";
 import {
   type PlanTrabajo,
   makeDefaultPlanTrabajo,
-  normalizeAlcanceCalendario,
   normalizePlanTrabajoContent,
 } from "@/lib/plan-trabajo/schema";
 
@@ -18,6 +17,7 @@ type Props = {
   initialTitle: string;
   initialStatus: string;
   initialContent: unknown;
+  initialInitiativeScores?: Record<string, Partial<Record<"confidence" | "risk" | "priority", number>>>;
 };
 
 function listToLines(list: string[]) {
@@ -29,27 +29,6 @@ function linesToList(text: string) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-function alcanceMapToLines(value: Record<string, number>) {
-  return Object.entries(value)
-    .map(([channel, count]) => `${channel}: ${count}`)
-    .join("\n");
-}
-
-function linesToAlcanceMap(text: string) {
-  const map: Record<string, number> = {};
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const sep = line.indexOf(":");
-    if (sep <= 0) continue;
-    const channel = line.slice(0, sep).trim();
-    const count = Number.parseInt(line.slice(sep + 1).trim(), 10);
-    if (!channel || !Number.isFinite(count) || count <= 0) continue;
-    map[channel] = count;
-  }
-  return map;
 }
 
 function comunidadToLines(plan: PlanTrabajo) {
@@ -66,33 +45,6 @@ function linesToComunidad(text: string) {
       return { red, mes_anterior, meta };
     })
     .filter((item) => item.red || item.mes_anterior || item.meta);
-}
-
-function cantidadToLines(plan: PlanTrabajo) {
-  return plan.cantidad_contenidos
-    .map((item) => `${item.red} | ${item.cantidad} | ${item.formatos.join(", ")}`)
-    .join("\n");
-}
-
-function linesToCantidad(text: string) {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [red = "", cantidadRaw = "0", formatosRaw = ""] = line
-        .split("|")
-        .map((part) => part.trim());
-      return {
-        red,
-        cantidad: Number.parseInt(cantidadRaw, 10) || 0,
-        formatos: formatosRaw
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-      };
-    })
-    .filter((item) => item.red || item.cantidad > 0 || item.formatos.length > 0);
 }
 
 function pilaresToLines(plan: PlanTrabajo) {
@@ -255,7 +207,6 @@ export default function PlanTrabajoEditor(props: Props) {
     () => JSON.stringify(normalizePlanTrabajoContent({ plan_trabajo: plan }, plan)),
     [plan],
   );
-
   return (
     <form
       action={async (formData) => {
@@ -290,6 +241,7 @@ export default function PlanTrabajoEditor(props: Props) {
               <option value="plan">Plan</option>
               <option value="revision">Revision</option>
               <option value="aprobado">Aprobado</option>
+              <option value="exception">Excepcion</option>
             </select>
           </Field>
         </div>
@@ -385,32 +337,44 @@ export default function PlanTrabajoEditor(props: Props) {
 
       <Section
         title="III. Cantidad de Contenidos a Desarrollar"
-        description="Usa una fila por linea con el formato Red | Cantidad | Formatos"
+        description="Vista resumida por canal con volumen, formatos y señal operativa."
       >
-        <AreaField
-          label="Distribucion"
-          rows={7}
-          value={cantidadToLines(plan)}
-          onChange={(value) =>
-            setPlan((current) => ({
-              ...current,
-              cantidad_contenidos: linesToCantidad(value),
-            }))
-          }
-          hint="Ejemplo: FB / IG | 4 | 2 reels, 1 post estatico, 1 carrusel"
-        />
-        <AreaField
-          label="Alcance calendario"
-          rows={5}
-          value={alcanceMapToLines(plan.alcance_calendario)}
-          onChange={(value) =>
-            setPlan((current) => ({
-              ...current,
-              alcance_calendario: normalizeAlcanceCalendario(linesToAlcanceMap(value)),
-            }))
-          }
-          hint="Formato Canal: cantidad"
-        />
+        {plan.cantidad_contenidos.length > 0 ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {plan.cantidad_contenidos.map((item, index) => {
+              return (
+                <div
+                  key={`${item.red}-${index}`}
+                  className="group relative overflow-hidden rounded-[28px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.24)]"
+                >
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.16),transparent_38%)] opacity-80 transition-opacity group-hover:opacity-100" />
+                  <div className="relative flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-semibold tracking-tight text-white/92">
+                        {item.red || "Canal sin nombre"}
+                      </p>
+                      <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/56">
+                        {item.cantidad} piezas · {item.formatos.join(", ") || "Sin formatos"}
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-white/42">
+                      Canal activo
+                    </span>
+                  </div>
+                  <div className="relative mt-5 rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-white/26">
+                      Resumen
+                    </p>
+                    <p className="mt-2 text-sm leading-relaxed text-white/62">
+                      Este canal aporta {item.cantidad} entregables dentro del plan mensual y ya incluye
+                      los formatos definidos para ejecucion.
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       </Section>
 
       <Section

@@ -71,6 +71,9 @@ export default async function EmpresaBriefsPage({ params }: BriefsPageProps) {
     plan: "text-cyan-300 bg-cyan-300/10 border-cyan-300/20",
     borrador: "text-amber-300 bg-amber-300/10 border-amber-300/20",
     revision: "text-sky-300 bg-sky-300/10 border-sky-300/20",
+    exception: "text-fuchsia-300 bg-fuchsia-300/10 border-fuchsia-300/20",
+    blocked: "text-red-300 bg-red-300/10 border-red-300/20",
+    needs_review: "text-amber-300 bg-amber-300/10 border-amber-300/20",
   };
   const statusCls = (s: string) => STATUS_CLS[s.toLowerCase()] ?? "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
 

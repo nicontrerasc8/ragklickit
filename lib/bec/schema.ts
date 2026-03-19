@@ -35,7 +35,6 @@ export type BECFieldKey =
   | "Plan"
   | "Entregables Mensuales"
   | "Fuera de Alcance"
-  | "Flujos IA Activos"
   | "Herramientas Asociadas"
   | "Competencia Directa"
   | "Benchmark Aspiracional"
@@ -94,7 +93,7 @@ export const BEC_TEMPLATE: BECSection[] = [
     ],
   },
   {
-    title: "2. Identidad Estrategica",
+    title: "1. Identidad Estrategica",
     rows: [
       { kind: "field", key: "Propuesta de Valor", desc: "Que promete y diferencia la marca", example: "Creamos atmosferas con alma..." },
       { kind: "field", key: "Posicionamiento", desc: "Como quiere ser percibida", example: "Curadores de espacios con alma..." },
@@ -106,7 +105,7 @@ export const BEC_TEMPLATE: BECSection[] = [
     ],
   },
   {
-    title: "3. ICP e Insight del Cliente",
+    title: "2. ICP e Insight del Cliente",
     rows: [
       { kind: "field", key: "ICP Principal (Ideal Customer Profile)", desc: "Cliente ideal", example: "Hogares ABC1..." },
       { kind: "field", key: "ICP Secundario", desc: "Otro segmento posible", example: "Arquitectos / disenadores..." },
@@ -116,7 +115,7 @@ export const BEC_TEMPLATE: BECSection[] = [
     ],
   },
   {
-    title: "4. Objetivos Estrategicos y KPIs",
+    title: "3. Objetivos Estrategicos y KPIs",
     rows: [
       { kind: "field", key: "Objetivo SMART 1", desc: "Primer objetivo medible", example: "Aumentar leads 30%..." },
       { kind: "field", key: "Objetivo SMART 2", desc: "Segundo objetivo", example: "Mejorar tasa de cierre..." },
@@ -126,22 +125,21 @@ export const BEC_TEMPLATE: BECSection[] = [
     ],
   },
   {
-    title: "5. Alcance del Proyecto",
+    title: "4. Alcance del Proyecto",
     rows: [
       { kind: "field", key: "Alcance General", desc: "Servicios cubiertos", example: "Contenido + pauta + CRM..." },
       { kind: "field", key: "Plan", desc: "Plan contratado", example: "Plan Xpandit..." },
       { kind: "field", key: "Entregables Mensuales", desc: "Cuantificacion estandar", example: "8 Reels, 4 carruseles..." },
       { kind: "field", key: "Fuera de Alcance", desc: "Que no esta incluido", example: "Produccion de video pro..." },
-      { kind: "field", key: "Flujos IA Activos", desc: "Procesos automatizados", example: "Generacion copies, briefs..." },
       { kind: "field", key: "Herramientas Asociadas", desc: "Plataformas vinculadas", example: "GA4, Meta Ads, HubSpot..." },
     ],
   },
   {
-    title: "6. Pilares de Comunicacion",
+    title: "5. Pilares de Comunicacion",
     rows: [{ kind: "pillars" }],
   },
   {
-    title: "7. Competencia y Benchmark",
+    title: "6. Competencia y Benchmark",
     rows: [
       { kind: "field", key: "Competencia Directa", desc: "Rivales del mismo nivel", example: "Competidor A, B" },
       { kind: "field", key: "Benchmark Aspiracional", desc: "Marcas globales a emular", example: "Marca X, Y" },
@@ -149,7 +147,7 @@ export const BEC_TEMPLATE: BECSection[] = [
     ],
   },
   {
-    title: "8. Claims, CTAs y Hashtags",
+    title: "7. Claims, CTAs y Hashtags",
     rows: [
       { kind: "field", key: "Claims Generales", desc: "Claims principales", example: "Diseno con alma..." },
       { kind: "field", key: "Claims por Cluster", desc: "Claims por categorias", example: "Dormitorios:..., Sala:..." },
@@ -159,7 +157,7 @@ export const BEC_TEMPLATE: BECSection[] = [
     ],
   },
   {
-    title: "9. Restricciones, Riesgos y Dependencias",
+    title: "8. Restricciones, Riesgos y Dependencias",
     rows: [
       { kind: "field", key: "Restricciones Legales", desc: "Regulatorio/compliance", example: "No prometer..." },
       { kind: "field", key: "Disclaimers Obligatorios", desc: "Textos obligatorios", example: "Aplican terminos..." },
@@ -167,7 +165,7 @@ export const BEC_TEMPLATE: BECSection[] = [
     ],
   },
   {
-    title: "10. Roles y Responsables",
+    title: "9. Roles y Responsables",
     rows: [
       { kind: "field", key: "KAM", desc: "Account manager", example: "Nombre / cargo" },
       { kind: "field", key: "GM", desc: "Growth manager", example: "Nombre / cargo" },
@@ -178,7 +176,7 @@ export const BEC_TEMPLATE: BECSection[] = [
     ],
   },
   {
-    title: "11. Integraciones y Recursos",
+    title: "10. Integraciones y Recursos",
     rows: [
       { kind: "field", key: "Metricool Perfil", desc: "Link o nombre", example: "perfil metricool" },
       { kind: "field", key: "Xpandit Plantilla", desc: "Link plantilla", example: "url" },
@@ -187,7 +185,7 @@ export const BEC_TEMPLATE: BECSection[] = [
     ],
   },
   {
-    title: "12. Notas Finales / Observaciones",
+    title: "11. Notas Finales / Observaciones",
     rows: [{ kind: "field", key: "Notas Finales / Observaciones", desc: "Notas", example: "Notas adicionales..." }],
   },
 ];
@@ -324,8 +322,67 @@ export function companyContext(c: CompanyForm): string {
   ].join("\n");
 }
 
-export function buildPromptBEC(company: CompanyForm, docContext: string): string {
-  const fieldsList = Object.keys(makeDefaultBEC().fields).join(", ");
+function normalizeDeliverableCount(value: unknown) {
+  const count =
+    typeof value === "number"
+      ? value
+      : Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return Math.min(10, Math.trunc(count));
+}
 
-  return `Actua como estratega senior de marketing y negocio.\nTu tarea es llenar el BEC (Base Estrategica del Cliente) con valores concretos.\n\nREGLAS CRITICAS:\n- NO uses markdown. NO uses tablas. NO uses bullets con guiones. SOLO lineas "Campo: valor".\n- Si falta info, escribe "SUPUESTO: ..." dentro del valor.\n- Usa exactamente estos campos (mismos nombres):\n${fieldsList}\n\nAdemas llena la seccion "6. Pilares de Comunicacion" con 6 filas usando este formato exacto:\nPilar 1 - Pilar: ...\nPilar 1 - % Contenido: ...\nPilar 1 - Canales Principales: ...\nPilar 1 - Formatos Clave: ...\n(repite para Pilar 2 ... Pilar 6)\n\n${companyContext(company)}\n\nContexto documental (resumen):\n${docContext || "Sin documentos"}\n\nEntrega SOLO lineas Campo: valor (y las de pilares). Nada mas.`;
+function formatDeliverableLabel(channel: string, count: number) {
+  const normalized = channel.trim().toLowerCase();
+
+  if (normalized === "instagram") return `${count} piezas para Instagram`;
+  if (normalized === "facebook") return `${count} piezas para Facebook`;
+  if (normalized === "linkedin") return `${count} piezas para LinkedIn`;
+  if (normalized === "tiktok") return `${count} piezas para TikTok`;
+  if (normalized === "youtube") return `${count} piezas para YouTube`;
+  if (normalized === "marketing email") return `${count} emails de marketing`;
+  if (normalized === "blog") return `${count} articulos de blog`;
+  if (normalized === "whatsapp") return `${count} piezas para WhatsApp`;
+
+  return `${count} entregables para ${channel.trim()}`;
+}
+
+export function deriveMonthlyDeliverablesFromMetadata(metadata: unknown): string {
+  if (!metadata || typeof metadata !== "object") return "";
+
+  const record = metadata as Record<string, unknown>;
+
+  if (typeof record.entregables_mensuales === "string" && record.entregables_mensuales.trim()) {
+    return record.entregables_mensuales.trim();
+  }
+
+  const alcance =
+    record.alcance_calendario && typeof record.alcance_calendario === "object"
+      ? (record.alcance_calendario as Record<string, unknown>)
+      : null;
+
+  if (!alcance) return "";
+
+  return Object.entries(alcance)
+    .map(([channel, rawCount]) => {
+      const count = normalizeDeliverableCount(rawCount);
+      if (!channel.trim() || count === null) return "";
+      return formatDeliverableLabel(channel, count);
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+export function buildPromptBEC(
+  company: CompanyForm,
+  docContext: string,
+  metadataContext?: string,
+  forcedDeliverables?: string,
+): string {
+  const fieldsList = Object.keys(makeDefaultBEC().fields).join(", ");
+  const safeForcedDeliverables = forcedDeliverables?.trim() ?? "";
+  const monthlyDeliverablesRule = safeForcedDeliverables
+    ? `- El campo "Entregables Mensuales" debe salir exactamente de metadata_json. Usa este valor literal: ${safeForcedDeliverables}`
+    : '- Si metadata_json trae entregables o alcance_calendario, usa esa informacion como fuente prioritaria para "Entregables Mensuales".';
+
+  return `Actua como estratega senior de marketing y negocio.\nTu tarea es llenar el BEC (Base Estrategica del Cliente) con valores concretos.\n\nREGLAS CRITICAS:\n- NO uses markdown. NO uses tablas. NO uses bullets con guiones. SOLO lineas "Campo: valor".\n- Si falta info, escribe "SUPUESTO: ..." dentro del valor.\n${monthlyDeliverablesRule}\n- Usa exactamente estos campos (mismos nombres):\n${fieldsList}\n\nAdemas llena la seccion "6. Pilares de Comunicacion" con 6 filas usando este formato exacto:\nPilar 1 - Pilar: ...\nPilar 1 - % Contenido: ...\nPilar 1 - Canales Principales: ...\nPilar 1 - Formatos Clave: ...\n(repite para Pilar 2 ... Pilar 6)\n\n${companyContext(company)}\n\nMETADATA_JSON prioritaria:\n${metadataContext || "{}"}\n\nContexto documental (resumen):\n${docContext || "Sin documentos"}\n\nEntrega SOLO lineas Campo: valor (y las de pilares). Nada mas.`;
 }

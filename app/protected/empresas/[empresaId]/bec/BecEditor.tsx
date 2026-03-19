@@ -10,14 +10,23 @@ import {
   CompanyForm,
   DEFAULT_COMPANY,
 } from "@/lib/bec/schema";
-import { LayoutPanelLeft, Save, Sparkles } from "lucide-react";
+import { Save, Sparkles } from "lucide-react";
 
 type BecEditorProps = {
   empresaId: string;
   initialCompany: CompanyForm;
   initialBec: BECState;
   becVersion: number;
+  initialScores?: {
+    confidence?: number;
+    data_quality?: number;
+    risk?: number;
+  };
 };
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("es-PE").format(value);
+}
 
 function Field({
   label,
@@ -169,10 +178,16 @@ function BecSection({
                   : "border-white/8 bg-white/5 text-white/30"
             }`}
           >
-            {filledCount}/{total}
+            <span className="tabular-nums">
+              {formatNumber(filledCount)}/{formatNumber(total)}
+            </span>
           </span>
         ) : null}
-        {hasPillars ? <span className="text-[11px] text-white/30">{bec.pilares.length}p</span> : null}
+        {hasPillars ? (
+          <span className="rounded-full border border-white/8 bg-white/5 px-2.5 py-0.5 text-[11px] text-white/35">
+            <span className="tabular-nums">{formatNumber(bec.pilares.length)}</span> pilares
+          </span>
+        ) : null}
         <span
           className="text-sm text-white/22 transition-transform duration-200"
           style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
@@ -273,7 +288,6 @@ export default function BecEditor({
   empresaId,
   initialCompany,
   initialBec,
-  becVersion,
 }: BecEditorProps) {
   const router = useRouter();
   const [company, setCompany] = useState<CompanyForm>({
@@ -370,7 +384,9 @@ export default function BecEditor({
               </p>
             </div>
             <div className="text-right">
-              <p className="text-[24px] font-bold leading-none text-white">{progressPct}%</p>
+              <p className="tabular-nums text-[24px] font-bold leading-none text-white">
+                {formatNumber(progressPct)}%
+              </p>
               <p className="mt-0.5 text-[10px] uppercase tracking-wider text-white/25">completado</p>
             </div>
           </div>
@@ -433,17 +449,6 @@ export default function BecEditor({
           </button>
         </section>
 
-        <section className="rounded-3xl border border-white/8 bg-white/[0.015] p-4">
-          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-white/28">
-            <LayoutPanelLeft size={13} />
-            Resumen
-          </div>
-          <div className="mt-4 grid gap-2">
-            <SummaryRow label="Version" value={`v${becVersion}`} />
-            <SummaryRow label="Campos" value={`${filledFields}/${allFields.length}`} />
-            <SummaryRow label="Pilares" value={`${bec.pilares.length}`} />
-          </div>
-        </section>
       </aside>
 
       <div className="space-y-4">
@@ -491,15 +496,6 @@ export default function BecEditor({
           </button>
         </form>
       </div>
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-2xl border border-white/7 bg-white/[0.02] px-3 py-2.5">
-      <span className="text-[12px] text-white/38">{label}</span>
-      <span className="text-[12px] font-semibold text-white/75">{value}</span>
     </div>
   );
 }

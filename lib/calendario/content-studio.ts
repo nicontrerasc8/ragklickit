@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ollamaChat } from "@/lib/ollama/client";
+import { aiChat } from "@/lib/ollama/client";
 import {
   type CalendarioContent,
   type CalendarioGeneratedImage,
@@ -30,6 +30,19 @@ function safeJsonParse<T>(raw: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function getContentKind(item: CalendarioItem): CalendarioItemAssetBundle["content_kind"] {
+  const format = item.formato.toLowerCase();
+  const channel = item.canal.toLowerCase();
+
+  if (format.includes("carrusel")) return "carousel";
+  if (format.includes("video") || format.includes("reel") || channel.includes("youtube") || channel.includes("tiktok")) {
+    return "video";
+  }
+  if (format.includes("art") || channel.includes("blog")) return "blog";
+  if (format.includes("email") || format.includes("newsletter") || channel.includes("email")) return "email";
+  return "social";
 }
 
 function isLongformItem(item: CalendarioItem) {
@@ -99,8 +112,9 @@ export async function generateCalendarioItemBundle(params: {
   const { empresaNombre, calendarioTitulo, periodo, item, existingBundle } = params;
   const imageCount = getImageCount(item);
   const isLongform = isLongformItem(item);
+  const contentKind = getContentKind(item);
 
-  const contentDraft = await ollamaChat({
+  const contentDraft = await aiChat({
     systemPrompt:
       "Eres un content strategist senior para marketing. Devuelves SOLO JSON valido y sin markdown fuera de los campos indicados.",
     userPrompt: [
@@ -125,13 +139,28 @@ export async function generateCalendarioItemBundle(params: {
       "4) blog_body_markdown solo debe tener contenido si el formato o canal corresponde a blog/articulo; en otro caso devuelve cadena vacia.",
       "5) visual_direction debe describir estilo visual, tono, composicion y color.",
       "6) image_prompt_base debe servir para generar imagenes consistentes para el post.",
+      "7) Si es email, devuelve email_subject, email_preheader y email_body_markdown completos; si no, dejalos vacios.",
+      "8) Si es video o reel, devuelve video_hook y video_script; si no, dejalos vacios.",
+      "9) Para video o reel, video_script debe incluir 3 variantes creativas claramente separadas: Variante 1, Variante 2 y Variante 3.",
+      "10) Cada variante de video debe usar un enfoque distinto. Mezcla entre tutorial, demo, mito vs realidad, FAQ, POV, storytelling, objecion-respuesta, comparativa, error comun, checklist o prueba social.",
+      "11) No hagas tres variantes cosmeticamente iguales. Deben cambiar hook, estructura y ritmo narrativo.",
+      "12) Si es carrusel, devuelve carousel_slides como array con 4 a 8 ideas/frames breves; si no, devuelve array vacio.",
+      "13) headline, caption y short_copy deben evitar lugares comunes y sonar especificos para el tema, buyer persona y CTA.",
+      "14) visual_direction e image_prompt_base deben ser concretos, cinematograficos y utiles para produccion; evita descripciones vagas como \"moderno\" sin detalle.",
       "",
       `JSON exacto esperado: ${JSON.stringify({
+        content_kind: contentKind,
         headline: existingBundle?.headline ?? "",
         caption: existingBundle?.caption ?? "",
         short_copy: existingBundle?.short_copy ?? "",
         blog_title: existingBundle?.blog_title ?? "",
         blog_body_markdown: existingBundle?.blog_body_markdown ?? "",
+        email_subject: existingBundle?.email_subject ?? "",
+        email_preheader: existingBundle?.email_preheader ?? "",
+        email_body_markdown: existingBundle?.email_body_markdown ?? "",
+        video_hook: existingBundle?.video_hook ?? "",
+        video_script: existingBundle?.video_script ?? "",
+        carousel_slides: existingBundle?.carousel_slides ?? [],
         cta: existingBundle?.cta ?? item.CTA ?? "",
         hashtags: existingBundle?.hashtags ?? [],
         visual_direction: existingBundle?.visual_direction ?? "",
@@ -147,11 +176,18 @@ export async function generateCalendarioItemBundle(params: {
   const parsed = safeJsonParse(
     contentDraft,
     {
+      content_kind: contentKind,
       headline: item.titulo_base || item.tema,
       caption: "",
       short_copy: "",
       blog_title: "",
       blog_body_markdown: "",
+      email_subject: "",
+      email_preheader: "",
+      email_body_markdown: "",
+      video_hook: "",
+      video_script: "",
+      carousel_slides: [],
       cta: item.CTA,
       hashtags: [],
       visual_direction: "",
@@ -172,12 +208,26 @@ export async function generateCalendarioItemBundle(params: {
 
   return {
     generated_at: new Date().toISOString(),
+    content_kind: contentKind,
     headline: typeof parsed.headline === "string" ? parsed.headline : item.titulo_base || item.tema,
     caption: typeof parsed.caption === "string" ? parsed.caption : "",
     short_copy: typeof parsed.short_copy === "string" ? parsed.short_copy : "",
     blog_title: isLongform && typeof parsed.blog_title === "string" ? parsed.blog_title : "",
     blog_body_markdown:
       isLongform && typeof parsed.blog_body_markdown === "string" ? parsed.blog_body_markdown : "",
+    email_subject: contentKind === "email" && typeof parsed.email_subject === "string" ? parsed.email_subject : "",
+    email_preheader:
+      contentKind === "email" && typeof parsed.email_preheader === "string" ? parsed.email_preheader : "",
+    email_body_markdown:
+      contentKind === "email" && typeof parsed.email_body_markdown === "string"
+        ? parsed.email_body_markdown
+        : "",
+    video_hook: contentKind === "video" && typeof parsed.video_hook === "string" ? parsed.video_hook : "",
+    video_script: contentKind === "video" && typeof parsed.video_script === "string" ? parsed.video_script : "",
+    carousel_slides:
+      contentKind === "carousel" && Array.isArray(parsed.carousel_slides)
+        ? (parsed.carousel_slides.filter((entry) => typeof entry === "string") as string[])
+        : [],
     cta: typeof parsed.cta === "string" && parsed.cta.trim() ? parsed.cta : item.CTA,
     hashtags: Array.isArray(parsed.hashtags)
       ? (parsed.hashtags.filter((tag) => typeof tag === "string") as string[])

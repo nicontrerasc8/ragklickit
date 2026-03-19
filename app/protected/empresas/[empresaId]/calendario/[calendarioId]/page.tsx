@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import WorkflowPanel from "@/components/aba/WorkflowPanel";
+import { updateArtifactApproval } from "@/app/protected/actions";
 import { createClient } from "@/lib/supabase/server";
 import CalendarioEditor from "@/app/protected/empresas/[empresaId]/calendario/CalendarioEditor";
+import { groupEntityScores, pickGlobalScores } from "@/lib/rag/scoring";
+import { readWorkflow } from "@/lib/workflow";
 
 type PageProps = {
   params: Promise<{ empresaId: string; calendarioId: string }>;
@@ -26,7 +30,7 @@ export default async function CalendarioDetailPage({ params }: PageProps) {
   const agenciaId = appUser?.agencia_id ?? null;
   if (!agenciaId) notFound();
 
-  const [{ data: empresa }, { data: calendario }] = await Promise.all([
+  const [{ data: empresa }, { data: calendario }, { data: scoreRows }] = await Promise.all([
     supabase
       .from("empresa")
       .select("id, nombre")
@@ -41,6 +45,11 @@ export default async function CalendarioDetailPage({ params }: PageProps) {
       .eq("empresa_id", empresaId)
       .eq("agencia_id", agenciaId)
       .maybeSingle(),
+    supabase
+      .from("rag_scores")
+      .select("score_type, entity_level, entity_key, score_value, created_at")
+      .eq("artifact_id", calendarioId)
+      .order("created_at", { ascending: false }),
   ]);
 
   if (!empresa || !calendario) notFound();
@@ -58,9 +67,17 @@ export default async function CalendarioDetailPage({ params }: PageProps) {
     revision:  { label: "Revisión",  color: "#c4b5fd", bg: "rgba(139,92,246,0.08)", border: "rgba(139,92,246,0.22)" },
     aprobado:  { label: "Aprobado",  color: "#6ee7b7", bg: "rgba(16,185,129,0.08)", border: "rgba(16,185,129,0.22)" },
     publicado: { label: "Publicado", color: "#fde68a", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.22)" },
+    blocked:   { label: "Blocked", color: "#fca5a5", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.22)" },
+    needs_review: { label: "Revision", color: "#fcd34d", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.22)" },
+    exception: { label: "Excepcion", color: "#f0abfc", bg: "rgba(217,70,239,0.08)", border: "rgba(217,70,239,0.22)" },
   };
 
   const status = STATUS_MAP[calendario.status] ?? STATUS_MAP["plan"];
+  const globalScores = pickGlobalScores(scoreRows ?? []);
+  const itemScores = groupEntityScores(scoreRows ?? []);
+  const workflow = readWorkflow(calendario.content_json);
+  const scoreLabel = (value?: number) =>
+    typeof value === "number" ? `${Math.round(value * 100)}%` : "Sin score";
 
   return (
     <div
@@ -223,6 +240,9 @@ export default async function CalendarioDetailPage({ params }: PageProps) {
                   {[
                     { label: "Tipo", value: "Calendario editorial", accent: false },
                     { label: "Estado", value: status.label, accent: true, accentColor: status.color },
+                    { label: "Confianza", value: scoreLabel(globalScores.confidence), accent: false },
+                    { label: "Riesgo", value: scoreLabel(globalScores.risk), accent: false },
+                    { label: "Prioridad", value: scoreLabel(globalScores.priority), accent: false },
                     { label: "Versión", value: `v${calendario.version}`, accent: false },
                   ].map(({ label, value, accent, accentColor }) => (
                     <div
@@ -263,7 +283,45 @@ export default async function CalendarioDetailPage({ params }: PageProps) {
           </header>
 
           {/* ── EDITOR AREA ─────────────────────────────────────────── */}
-          <section className="relative flex-1 px-6 sm:px-10 xl:px-16 py-8">
+          <div className="px-6 pt-6 sm:px-10 xl:px-16">
+            <WorkflowPanel
+              title="Workflow del calendario"
+              workflow={workflow}
+              actions={
+                <>
+                  <form action={updateArtifactApproval}>
+                    <input type="hidden" name="empresa_id" value={empresaId} />
+                    <input type="hidden" name="artifact_id" value={calendario.id} />
+                    <input type="hidden" name="artifact_type" value="calendario" />
+                    <input type="hidden" name="approval_action" value="approve" />
+                    <button className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-100 transition-colors hover:bg-emerald-400/20">
+                      Aprobar calendario
+                    </button>
+                  </form>
+                  <form action={updateArtifactApproval}>
+                    <input type="hidden" name="empresa_id" value={empresaId} />
+                    <input type="hidden" name="artifact_id" value={calendario.id} />
+                    <input type="hidden" name="artifact_type" value="calendario" />
+                    <input type="hidden" name="approval_action" value="request_changes" />
+                    <button className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs font-medium text-amber-100 transition-colors hover:bg-amber-400/20">
+                      Pedir cambios
+                    </button>
+                  </form>
+                  <form action={updateArtifactApproval}>
+                    <input type="hidden" name="empresa_id" value={empresaId} />
+                    <input type="hidden" name="artifact_id" value={calendario.id} />
+                    <input type="hidden" name="artifact_type" value="calendario" />
+                    <input type="hidden" name="approval_action" value="reopen" />
+                    <button className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-white/70 transition-colors hover:text-white">
+                      Reabrir
+                    </button>
+                  </form>
+                </>
+              }
+            />
+          </div>
+
+          <section className="relative flex-1 px-4 py-8 sm:px-6 xl:px-8">
 
             {/* Inner label bar */}
             <div
@@ -319,6 +377,7 @@ export default async function CalendarioDetailPage({ params }: PageProps) {
                 background: "rgba(255,255,255,0.016)",
                 border: "1px solid rgba(255,255,255,0.055)",
                 minHeight: "72vh",
+                width: "100%",
               }}
             >
               {/* Corner glows */}
@@ -337,13 +396,14 @@ export default async function CalendarioDetailPage({ params }: PageProps) {
                 }}
               />
 
-              <div className="relative p-6 sm:p-8 xl:p-10 h-full">
+              <div className="relative h-full w-full p-2 sm:p-3 xl:p-4">
                 <CalendarioEditor
                   empresaId={empresaId}
                   calendarioId={calendario.id}
                   initialTitle={calendario.title || "Calendario editorial"}
                   initialStatus={calendario.status || "plan"}
                   initialContent={calendario.content_json}
+                  initialItemScores={itemScores}
                 />
               </div>
             </div>

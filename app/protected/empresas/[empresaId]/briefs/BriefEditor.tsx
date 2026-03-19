@@ -11,7 +11,6 @@ import {
   BriefFormState,
   makeDefaultBriefForm,
 } from "@/lib/brief/schema";
-import { LayoutPanelLeft } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,6 +76,37 @@ function SaveBriefButton() {
     </button>
   );
 }
+
+const BRIEF_STATUS_OPTIONS = [
+  {
+    value: "plan",
+    label: "Plan",
+    hint: "Listo para trabajar",
+    tone: "border-sky-400/25 bg-sky-400/10 text-sky-200",
+    dot: "bg-sky-300",
+  },
+  {
+    value: "revision",
+    label: "Revision",
+    hint: "Requiere ajustes",
+    tone: "border-amber-400/25 bg-amber-400/10 text-amber-200",
+    dot: "bg-amber-300",
+  },
+  {
+    value: "aprobado",
+    label: "Aprobado",
+    hint: "Validado para operar",
+    tone: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
+    dot: "bg-emerald-300",
+  },
+  {
+    value: "exception",
+    label: "Excepcion",
+    hint: "Fuera del flujo normal",
+    tone: "border-fuchsia-400/25 bg-fuchsia-400/10 text-fuchsia-200",
+    dot: "bg-fuchsia-300",
+  },
+] as const;
 
 // ─── Objective Group Card ─────────────────────────────────────────────────────
 
@@ -196,9 +226,12 @@ function TextFieldCard({
 export default function BriefEditor({ empresaId, initialPeriodo, initialFormState }: BriefEditorProps) {
   const router = useRouter();
   const [periodo, setPeriodo] = useState(initialPeriodo ?? toMonthInput());
+  const [estado, setEstado] = useState("plan");
   const [formState, setFormState] = useState<BriefFormState>(
     initialFormState ?? makeDefaultBriefForm(),
   );
+  const [aiError, setAiError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const serialized = useMemo(() => JSON.stringify(formState), [formState]);
 
   // Progress calculation
@@ -211,6 +244,21 @@ export default function BriefEditor({ empresaId, initialPeriodo, initialFormStat
   const totalSteps = BRIEF_TEXT_FIELDS.length + 1; // fields + strategic
   const completedSteps = filledFields + (hasStrategicAnswer ? 1 : 0);
   const progressPct = Math.round((completedSteps / totalSteps) * 100);
+  const saveBrief = async (fd: FormData) => {
+    setSaveError("");
+    setAiError("");
+    try {
+      const result = await createBrief(fd);
+      if (result?.briefId) {
+        router.push(`/protected/empresas/${empresaId}/briefs/${result.briefId}`);
+        router.refresh();
+        return;
+      }
+      router.refresh();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "No se pudo guardar el brief.");
+    }
+  };
 
   return (
     <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)] 2xl:grid-cols-[340px_minmax(0,1fr)]">
@@ -260,29 +308,68 @@ export default function BriefEditor({ empresaId, initialPeriodo, initialFormStat
               style={{ fontFamily: "inherit", colorScheme: "dark" }}
             />
           </div>
+          <div className="space-y-2">
+            <label className="block text-[11px] font-medium text-white/30 pl-0.5">Estado operativo</label>
+            <div className="grid grid-cols-2 gap-2">
+              {BRIEF_STATUS_OPTIONS.map((option) => {
+                const active = estado === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setEstado(option.value)}
+                    className={`rounded-2xl border px-3.5 py-3 text-left transition-all ${
+                      active
+                        ? option.tone
+                        : "border-white/8 bg-white/[0.025] text-white/55 hover:border-white/14 hover:bg-white/[0.04] hover:text-white/80"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`h-2 w-2 rounded-full ${active ? option.dot : "bg-white/20"}`} />
+                      <span className="text-sm font-semibold">{option.label}</span>
+                    </div>
+                    <p className={`mt-1 text-[11px] ${active ? "text-current/80" : "text-white/30"}`}>
+                      {option.hint}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <form
             action={async (fd) => {
-              await generateBriefDraft(fd);
-              router.refresh();
+              setAiError("");
+              try {
+                const result = await generateBriefDraft(fd);
+                if (result?.briefId) {
+                  router.push(`/protected/empresas/${empresaId}/briefs/${result.briefId}`);
+                  router.refresh();
+                  return;
+                }
+                router.refresh();
+              } catch (error) {
+                setAiError(error instanceof Error ? error.message : "No se pudo generar el brief con IA.");
+              }
             }}
           >
             <input type="hidden" name="empresa_id" value={empresaId} />
             <input type="hidden" name="periodo" value={periodo} />
             <GenerateAiButton />
           </form>
-        </div>
-      </section>
-      <section className="rounded-2xl border border-white/8 bg-white/[0.015] p-4">
-        <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-white/28">
-          <LayoutPanelLeft size={13} />
-          Resumen
-        </div>
-        <div className="mt-4 grid gap-2">
-          <SummaryRow label="Periodo" value={periodo || "-"} />
-          <SummaryRow label="Objetivos" value={`${checkedObjectives}/${totalObjectives}`} />
-          <SummaryRow label="Campos" value={`${filledFields}/${BRIEF_TEXT_FIELDS.length}`} />
-          <SummaryRow label="Progreso" value={`${progressPct}%`} />
+          {aiError ? (
+            <p className="text-[11px] text-rose-300/85">{aiError}</p>
+          ) : null}
+          <form action={saveBrief} className="pt-1">
+            <input type="hidden" name="empresa_id" value={empresaId} />
+            <input type="hidden" name="periodo" value={periodo} />
+            <input type="hidden" name="estado" value={estado} />
+            <input type="hidden" name="contenido" value={serialized} />
+            <SaveBriefButton />
+          </form>
+          {saveError ? (
+            <p className="text-[11px] text-rose-300/85">{saveError}</p>
+          ) : null}
         </div>
       </section>
       </aside>
@@ -385,28 +472,19 @@ export default function BriefEditor({ empresaId, initialPeriodo, initialFormStat
 
       {/* ── Save ─────────────────────────────────────────────────────── */}
       <form
-        action={async (fd) => {
-          await createBrief(fd);
-          router.refresh();
-        }}
+        action={saveBrief}
         className="pt-2 flex justify-end"
       >
         <input type="hidden" name="empresa_id" value={empresaId} />
         <input type="hidden" name="periodo" value={periodo} />
-        <input type="hidden" name="estado" value="plan" />
+        <input type="hidden" name="estado" value={estado} />
         <input type="hidden" name="contenido" value={serialized} />
         <SaveBriefButton />
       </form>
+      {saveError ? (
+        <p className="text-right text-[11px] text-rose-300/85">{saveError}</p>
+      ) : null}
       </div>
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-2xl border border-white/7 bg-white/[0.02] px-3 py-2.5">
-      <span className="text-[12px] text-white/38">{label}</span>
-      <span className="text-[12px] font-semibold text-white/75">{value}</span>
     </div>
   );
 }

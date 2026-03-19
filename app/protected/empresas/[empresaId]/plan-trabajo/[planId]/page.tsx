@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import WorkflowPanel from "@/components/aba/WorkflowPanel";
+import { updateArtifactApproval } from "@/app/protected/actions";
 import PlanPdfExportButton from "@/app/protected/empresas/[empresaId]/plan-trabajo/PlanPdfExportButton";
 import { createClient } from "@/lib/supabase/server";
 import PlanTrabajoEditor from "@/app/protected/empresas/[empresaId]/plan-trabajo/PlanTrabajoEditor";
+import { groupEntityScores, pickGlobalScores } from "@/lib/rag/scoring";
+import { readWorkflow } from "@/lib/workflow";
 
 type PageProps = {
   params: Promise<{ empresaId: string; planId: string }>;
@@ -32,7 +36,7 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const [{ data: empresa }, { data: plan }] = await Promise.all([
+  const [{ data: empresa }, { data: plan }, { data: scoreRows }] = await Promise.all([
     supabase
       .from("empresa")
       .select("id, nombre")
@@ -47,6 +51,11 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
       .eq("empresa_id", empresaId)
       .eq("agencia_id", agenciaId)
       .maybeSingle(),
+    supabase
+      .from("rag_scores")
+      .select("score_type, entity_level, entity_key, score_value, created_at")
+      .eq("artifact_id", planId)
+      .order("created_at", { ascending: false }),
   ]);
 
   if (!empresa || !plan) {
@@ -54,6 +63,12 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
   }
 
   const updatedLabel = new Date(plan.updated_at).toLocaleString("es-PE");
+  const globalScores = pickGlobalScores(scoreRows ?? []);
+  const initiativeScores = groupEntityScores(scoreRows ?? []);
+  const workflow = readWorkflow(plan.content_json);
+  const scoreLabel = (value?: number) =>
+    typeof value === "number" ? `${Math.round(value * 100)}%` : "Sin score";
+  const approvalState = workflow?.approval.state ?? "pending";
 
   return (
     <div
@@ -144,8 +159,54 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
             <MetricCard label="Estado" value={plan.status} capitalize />
             <MetricCard label="Ultima actualizacion" value={updatedLabel} />
             <MetricCard label="Artefacto" value="RAG editable" />
+            <MetricCard label="Confianza" value={scoreLabel(globalScores.confidence)} />
+            <MetricCard label="Riesgo" value={scoreLabel(globalScores.risk)} />
+            <MetricCard label="Prioridad" value={scoreLabel(globalScores.priority)} />
+            <MetricCard label="ROI esperado" value={scoreLabel(globalScores.roi)} />
           </div>
         </section>
+
+        <WorkflowPanel
+          title="Workflow del plan"
+          workflow={workflow}
+          actions={
+            <>
+              {approvalState !== "approved" ? (
+                <form action={updateArtifactApproval}>
+                  <input type="hidden" name="empresa_id" value={empresaId} />
+                  <input type="hidden" name="artifact_id" value={plan.id} />
+                  <input type="hidden" name="artifact_type" value="plan_trabajo" />
+                  <input type="hidden" name="approval_action" value="approve" />
+                  <button className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-100 transition-colors hover:bg-emerald-400/20">
+                    Aprobar plan
+                  </button>
+                </form>
+              ) : null}
+              {approvalState !== "changes_requested" ? (
+                <form action={updateArtifactApproval}>
+                  <input type="hidden" name="empresa_id" value={empresaId} />
+                  <input type="hidden" name="artifact_id" value={plan.id} />
+                  <input type="hidden" name="artifact_type" value="plan_trabajo" />
+                  <input type="hidden" name="approval_action" value="request_changes" />
+                  <button className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs font-medium text-amber-100 transition-colors hover:bg-amber-400/20">
+                    Pedir cambios
+                  </button>
+                </form>
+              ) : null}
+              {approvalState !== "pending" ? (
+                <form action={updateArtifactApproval}>
+                  <input type="hidden" name="empresa_id" value={empresaId} />
+                  <input type="hidden" name="artifact_id" value={plan.id} />
+                  <input type="hidden" name="artifact_type" value="plan_trabajo" />
+                  <input type="hidden" name="approval_action" value="reopen" />
+                  <button className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-white/70 transition-colors hover:text-white">
+                    Reabrir
+                  </button>
+                </form>
+              ) : null}
+            </>
+          }
+        />
 
         <section className="rounded-[32px] border border-white/10 bg-black/20 p-4 shadow-2xl shadow-black/20 sm:p-6">
           <div className="mb-4 flex flex-col gap-2 border-b border-white/8 pb-4 sm:flex-row sm:items-end sm:justify-between">
@@ -164,6 +225,7 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
             initialTitle={plan.title || "Plan de trabajo"}
             initialStatus={plan.status || "plan"}
             initialContent={plan.content_json}
+            initialInitiativeScores={initiativeScores}
           />
         </section>
       </div>

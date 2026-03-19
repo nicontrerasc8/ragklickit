@@ -4,6 +4,7 @@ import {
   createEmpresaDocument,
 } from "@/app/protected/actions";
 import { createClient } from "@/lib/supabase/server";
+import { readWorkflow, type WorkflowMeta } from "@/lib/workflow";
 import DocumentsManager from "./DocumentsManager";
 import EmpresaAlcanceEditor from "./EmpresaAlcanceEditor";
 import EmpresaDashboard from "./EmpresaDashboard";
@@ -41,7 +42,7 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
       .eq("id", empresaId)
       .eq("agencia_id", agenciaId)
       .maybeSingle(),
-    supabase.from("bec").select("id, version").eq("empresa_id", empresaId).maybeSingle(),
+    supabase.from("bec").select("id, version, contenido_json, updated_at").eq("empresa_id", empresaId).maybeSingle(),
     supabase
       .from("kb_documents")
       .select("id, doc_type, title, raw_text, created_at")
@@ -55,10 +56,106 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
   }
 
   const docsCount = documents?.length ?? 0;
+  const [{ data: latestBrief }, { data: latestBriefEvaluation }, { data: latestPlan }, { data: latestCalendario }] =
+    await Promise.all([
+      supabase
+        .from("brief")
+        .select("id, periodo, estado, version, contenido_json, updated_at")
+        .eq("empresa_id", empresaId)
+        .order("periodo", { ascending: false })
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("rag_artifacts")
+        .select("id, title, status, version, content_json, updated_at, inputs_json")
+        .eq("artifact_type", "brief_evaluation")
+        .eq("empresa_id", empresaId)
+        .eq("agencia_id", agenciaId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("rag_artifacts")
+        .select("id, title, status, version, content_json, updated_at, inputs_json")
+        .eq("artifact_type", "plan_trabajo")
+        .eq("empresa_id", empresaId)
+        .eq("agencia_id", agenciaId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("rag_artifacts")
+        .select("id, title, status, version, content_json, updated_at, inputs_json")
+        .eq("artifact_type", "calendario")
+        .eq("empresa_id", empresaId)
+        .eq("agencia_id", agenciaId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+  const abaSummary = {
+    bec: bec
+      ? {
+          id: bec.id,
+          version: bec.version,
+          updated_at: (bec as { updated_at?: string | null }).updated_at ?? null,
+          workflow: readWorkflow((bec as { contenido_json?: unknown }).contenido_json),
+          href: `/protected/empresas/${empresaId}/bec`,
+          label: "BEC",
+        }
+      : null,
+    brief: latestBrief
+      ? {
+          id: latestBrief.id,
+          version: latestBrief.version,
+          updated_at: latestBrief.updated_at ?? null,
+          workflow: readWorkflow(latestBriefEvaluation?.content_json),
+          href: `/protected/empresas/${empresaId}/briefs/${latestBrief.id}`,
+          label: "Brief",
+          status: latestBrief.estado,
+        }
+      : null,
+    plan: latestPlan
+      ? {
+          id: latestPlan.id,
+          version: latestPlan.version,
+          updated_at: latestPlan.updated_at ?? null,
+          workflow: readWorkflow(latestPlan.content_json),
+          href: `/protected/empresas/${empresaId}/plan-trabajo/${latestPlan.id}`,
+          label: "Plan",
+          status: latestPlan.status,
+        }
+      : null,
+    calendario: latestCalendario
+      ? {
+          id: latestCalendario.id,
+          version: latestCalendario.version,
+          updated_at: latestCalendario.updated_at ?? null,
+          workflow: readWorkflow(latestCalendario.content_json),
+          href: `/protected/empresas/${empresaId}/calendario/${latestCalendario.id}`,
+          label: "Calendario",
+          status: latestCalendario.status,
+        }
+      : null,
+  } satisfies Record<
+    string,
+    | {
+        id: string;
+        version: number;
+        updated_at: string | null;
+        workflow: WorkflowMeta | null;
+        href: string;
+        label: string;
+        status?: string;
+      }
+    | null
+  >;
 
   return (
     <div className="flex flex-col gap-8">
-      <EmpresaDashboard empresa={empresa} bec={bec} docsCount={docsCount} />
+      <EmpresaDashboard empresa={empresa} bec={bec} docsCount={docsCount} abaSummary={abaSummary} />
       <EmpresaAlcanceEditor empresa={empresa} />
 
       <section className="rounded-lg border p-5 space-y-4">

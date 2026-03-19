@@ -76,6 +76,9 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   plan: { bg: "bg-cyan-500/15", text: "text-cyan-400", dot: "bg-cyan-400" },
   borrador: { bg: "bg-amber-500/15", text: "text-amber-400", dot: "bg-amber-400" },
   revision: { bg: "bg-sky-500/15", text: "text-sky-400", dot: "bg-sky-400" },
+  needs_review: { bg: "bg-amber-500/15", text: "text-amber-400", dot: "bg-amber-400" },
+  blocked: { bg: "bg-red-500/15", text: "text-red-400", dot: "bg-red-400" },
+  exception: { bg: "bg-fuchsia-500/15", text: "text-fuchsia-400", dot: "bg-fuchsia-400" },
 };
 
 function statusStyle(status: string) {

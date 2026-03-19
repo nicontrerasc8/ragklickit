@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRef } from "react";
 import { updateEmpresa } from "@/app/protected/actions";
+import type { WorkflowMeta } from "@/lib/workflow";
 import {
   ArrowLeft,
   Pencil,
@@ -22,14 +23,101 @@ type Empresa = {
 };
 
 type Bec = { id: string; version: number } | null;
+type AbaItem = {
+  id: string;
+  version: number;
+  updated_at: string | null;
+  workflow: WorkflowMeta | null;
+  href: string;
+  label: string;
+  status?: string;
+} | null;
 
 type Props = {
   empresa: Empresa;
   bec: Bec;
   docsCount: number;
+  abaSummary: {
+    bec: AbaItem;
+    brief: AbaItem;
+    plan: AbaItem;
+    calendario: AbaItem;
+  };
 };
 
-export default function EmpresaDashboard({ empresa, bec, docsCount }: Props) {
+function statusTone(value?: string | null) {
+  switch ((value ?? "").toLowerCase()) {
+    case "approved":
+    case "aprobado":
+      return "border-emerald-400/20 bg-emerald-400/10 text-emerald-200";
+    case "blocked":
+      return "border-red-400/20 bg-red-400/10 text-red-200";
+    case "needs_review":
+    case "revision":
+      return "border-amber-400/20 bg-amber-400/10 text-amber-200";
+    case "exception":
+      return "border-fuchsia-400/20 bg-fuchsia-400/10 text-fuchsia-200";
+    default:
+      return "border-white/10 bg-white/[0.03] text-white/65";
+  }
+}
+
+function statusLabel(value?: string | null) {
+  return value ? value.replaceAll("_", " ") : "Sin estado";
+}
+
+function formatUpdated(value?: string | null) {
+  if (!value) return "Sin fecha";
+  return new Intl.DateTimeFormat("es-PE", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function AbaStageCard({ item }: { item: AbaItem }) {
+  if (!item) {
+    return (
+      <div className="rounded-2xl border border-white/7 bg-white/[0.02] p-4">
+        <p className="text-sm font-semibold text-white/65">Sin artefacto</p>
+        <p className="mt-1 text-xs text-white/35">Todavia no existe una version creada para esta etapa.</p>
+      </div>
+    );
+  }
+
+  const approvalState = item.workflow?.approval.state ?? "pending";
+  const workflowStatus = item.workflow?.status ?? item.status ?? "draft";
+
+  return (
+    <Link
+      href={item.href}
+      className="block rounded-2xl border border-white/7 bg-white/[0.02] p-4 transition-all hover:border-white/12 hover:bg-white/[0.03]"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white/85">{item.label}</p>
+          <p className="mt-1 text-xs text-white/35">v{item.version} · {formatUpdated(item.updated_at)}</p>
+        </div>
+        <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusTone(workflowStatus)}`}>
+          {statusLabel(workflowStatus)}
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] ${statusTone(approvalState)}`}>
+          Aprobacion {statusLabel(approvalState)}
+        </span>
+      </div>
+      {item.workflow?.summary ? (
+        <p className="mt-3 text-[12px] leading-relaxed text-white/48">{item.workflow.summary}</p>
+      ) : (
+        <p className="mt-3 text-[12px] leading-relaxed text-white/40">Aun no hay workflow operativo visible en esta etapa.</p>
+      )}
+    </Link>
+  );
+}
+
+export default function EmpresaDashboard({ empresa, bec, docsCount, abaSummary }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const openModal = () => {
@@ -145,6 +233,26 @@ export default function EmpresaDashboard({ empresa, bec, docsCount }: Props) {
           </Link>
         ))}
       </div>
+
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">ABA Overview</h2>
+            <p className="text-sm text-muted-foreground">
+              Estado maestro del flujo operativo: BEC, Brief, Plan y Calendario.
+            </p>
+          </div>
+          <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+            4 etapas
+          </span>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <AbaStageCard item={abaSummary.bec} />
+          <AbaStageCard item={abaSummary.brief} />
+          <AbaStageCard item={abaSummary.plan} />
+          <AbaStageCard item={abaSummary.calendario} />
+        </div>
+      </section>
 
       <dialog
         ref={dialogRef}

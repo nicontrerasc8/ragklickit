@@ -10,19 +10,42 @@ import {
   loadBriefForm,
   makeDefaultBriefForm,
 } from "@/lib/brief/schema";
-import { ollamaChat } from "@/lib/ollama/client";
+import { buildBecScores, replaceBecScores } from "@/lib/bec/scoring";
+import { deriveMonthlyDeliverablesFromMetadata } from "@/lib/bec/schema";
+import {
+  briefEvaluationArtifactTitle,
+  buildBriefEvaluation,
+  buildBriefEvaluationArtifactScores,
+} from "@/lib/brief/evaluation";
+import { aiChat, getAIConfig } from "@/lib/ollama/client";
 import {
   makeDefaultPlanTrabajo,
   normalizePlanTrabajoContent,
 } from "@/lib/plan-trabajo/schema";
 import {
+  clearCalendarioAssetBundles,
   makeDefaultCalendarioContent,
   normalizeCalendarioContent,
 } from "@/lib/calendario/schema";
+import {
+  buildCalendarioArtifactScores,
+  buildPlanArtifactScores,
+  replaceArtifactScores,
+} from "@/lib/rag/scoring";
 import { createClient } from "@/lib/supabase/server";
+import {
+  applyApprovalDecision,
+  attachWorkflow,
+  buildBecWorkflow,
+  buildBriefEvaluationWorkflow,
+  buildCalendarioWorkflow,
+  buildPlanWorkflow,
+  readWorkflow,
+} from "@/lib/workflow";
 
 const ALLOWED_PROMPT_TYPES = [
   "bec",
+  "brief",
   "plan_trabajo",
   "calendario",
 ] as const;
@@ -247,7 +270,7 @@ async function maybeTranslateWithOllama(text: string) {
 
   const maxChars = 18000;
   const bounded = trimmed.slice(0, maxChars);
-  const translated = await ollamaChat({
+  const translated = await aiChat({
     systemPrompt:
       "Eres un asistente que limpia y traduce contenido documental al espanol neutro. Devuelve solo texto plano.",
     userPrompt: `Limpia ruido y traduce al espanol neutro sin resumir. Si ya esta en espanol, solo limpiarlo.\n\n${bounded}`,
@@ -259,18 +282,25 @@ async function maybeTranslateWithOllama(text: string) {
 
 async function summarizeForRagWithOllama(text: string, title: string, docType: string) {
   const bounded = text.slice(0, 22000);
-  const summary = await ollamaChat({
+  const summary = await aiChat({
     systemPrompt:
-      "Eres un analista documental para RAG. Resumes en espanol neutro y devuelves texto plano.",
+      "Eres un analista documental senior para RAG. Extraes senal util, matices, restricciones y contexto operativo. Devuelves solo texto plano en espanol neutro.",
     userPrompt: [
       `Documento: ${title}`,
       `Tipo: ${docType}`,
       "",
       "Genera:",
-      "1) Resumen ejecutivo (5-8 lineas)",
+      "1) Resumen ejecutivo (5-8 lineas, no generico, con criterio de negocio)",
       "2) Datos y cifras clave",
       "3) Entidades clave",
-      "4) Riesgos o pendientes",
+      "4) Riesgos, restricciones o pendientes",
+      "5) Supuestos o ambiguedades detectadas",
+      "",
+      "Reglas:",
+      "- No adornes ni repitas obviedades.",
+      "- Si hay lineamientos, restricciones, disclaimers o temas prohibidos, priorizalos.",
+      "- Si hay datos operativos, cantidades, responsables, plazos o dependencias, destacalos.",
+      "- Si faltan datos, dilo explicitamente.",
       "",
       "Contenido:",
       bounded,
@@ -374,19 +404,150 @@ async function upsertBrief(
     if (updateError) {
       throw new Error(`No se pudo actualizar brief: ${updateError.message}`);
     }
-    return;
+    return existing.id as string;
   }
 
-  const { error: insertError } = await supabase.from("brief").insert({
-    empresa_id: empresaId,
-    periodo,
-    estado,
-    contenido_json: contenidoJson,
-  });
+  const { data: inserted, error: insertError } = await supabase
+    .from("brief")
+    .insert({
+      empresa_id: empresaId,
+      periodo,
+      estado,
+      contenido_json: contenidoJson,
+    })
+    .select("id")
+    .single();
 
   if (insertError) {
     throw new Error(`No se pudo crear brief: ${insertError.message}`);
   }
+
+  return inserted.id as string;
+}
+
+function getActiveTextModelLabel() {
+  return getAIConfig().modelLabel;
+}
+
+async function upsertBriefEvaluationArtifact(params: {
+  empresaId: string;
+  agenciaId: string;
+  briefId: string;
+  periodo: string;
+  contenidoJson: unknown;
+  status: string;
+}) {
+  const { empresaId, agenciaId, briefId, periodo, contenidoJson, status } = params;
+  const supabase = await requireUser();
+  const title = briefEvaluationArtifactTitle(periodo);
+
+  const { data: existing, error: existingError } = await supabase
+    .from("rag_artifacts")
+    .select("id, version")
+    .eq("artifact_type", "brief_evaluation")
+    .eq("empresa_id", empresaId)
+    .eq("agencia_id", agenciaId)
+    .eq("title", title)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(`No se pudo consultar evaluacion de brief: ${existingError.message}`);
+  }
+
+  if (existing?.id) {
+    const { error: updateError } = await supabase
+      .from("rag_artifacts")
+      .update({
+        content_json: contenidoJson,
+        status,
+        version: (existing.version ?? 1) + 1,
+        inputs_json: { brief_id: briefId, periodo },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+
+    if (updateError) {
+      throw new Error(`No se pudo actualizar evaluacion de brief: ${updateError.message}`);
+    }
+    return existing.id as string;
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("rag_artifacts")
+    .insert({
+      artifact_type: "brief_evaluation",
+      agencia_id: agenciaId,
+      empresa_id: empresaId,
+      title,
+      status,
+      inputs_json: { brief_id: briefId, periodo },
+      content_json: contenidoJson,
+      prompt_version: "brief_evaluation_v1",
+    })
+    .select("id")
+    .single();
+
+  if (insertError) {
+    throw new Error(`No se pudo crear evaluacion de brief: ${insertError.message}`);
+  }
+
+  return inserted.id as string;
+}
+
+async function syncBriefEvaluation(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  agenciaId: string;
+  empresaId: string;
+  briefId: string;
+  periodo: string;
+  briefContent: unknown;
+  briefStatus?: string;
+  updatedAt?: string | null;
+}) {
+  const { supabase, agenciaId, empresaId, briefId, periodo, briefContent } = params;
+  const { data: becActual, error: becError } = await supabase
+    .from("bec")
+    .select("version, contenido_json")
+    .eq("empresa_id", empresaId)
+    .maybeSingle();
+
+  if (becError) {
+    throw new Error(`No se pudo leer BEC para evaluar brief: ${becError.message}`);
+  }
+
+  const rawEvaluation = buildBriefEvaluation({
+    briefId,
+    briefContent,
+    becContent: becActual?.contenido_json,
+    becVersion: becActual?.version ?? null,
+  });
+  const workflow = buildBriefEvaluationWorkflow({
+    evaluationContent: rawEvaluation,
+    briefStatus: params.briefStatus,
+    updatedAt: params.updatedAt,
+  });
+  const evaluation = attachWorkflow(rawEvaluation, workflow);
+
+  const artifactId = await upsertBriefEvaluationArtifact({
+    empresaId,
+    agenciaId,
+    briefId,
+    periodo,
+    contenidoJson: evaluation,
+    status: workflow.status,
+  });
+
+  const scoreRows = buildBriefEvaluationArtifactScores({
+    agenciaId,
+    empresaId,
+    artifactId,
+    content: evaluation,
+  });
+  await replaceArtifactScores({
+    supabase,
+    artifactId,
+    rows: scoreRows,
+  });
 }
 
 async function upsertPlanTrabajoArtifact(params: {
@@ -395,8 +556,20 @@ async function upsertPlanTrabajoArtifact(params: {
   briefId: string;
   periodo: string;
   contenidoJson: unknown;
+  modelUsed?: string;
+  promptVersion?: string;
+  status?: string;
 }) {
-  const { empresaId, agenciaId, briefId, periodo, contenidoJson } = params;
+  const {
+    empresaId,
+    agenciaId,
+    briefId,
+    periodo,
+    contenidoJson,
+    modelUsed,
+    promptVersion,
+    status = "plan",
+  } = params;
   const supabase = await requireUser();
   const title = `Plan de trabajo ${periodo}`;
 
@@ -418,9 +591,11 @@ async function upsertPlanTrabajoArtifact(params: {
       .from("rag_artifacts")
       .update({
         content_json: contenidoJson,
-        status: "plan",
+        status,
         version: (existing.version ?? 1) + 1,
         inputs_json: { brief_id: briefId, periodo },
+        model_used: modelUsed ?? null,
+        prompt_version: promptVersion ?? null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
@@ -428,22 +603,30 @@ async function upsertPlanTrabajoArtifact(params: {
     if (updateError) {
       throw new Error(`No se pudo actualizar plan de trabajo: ${updateError.message}`);
     }
-    return;
+    return existing.id as string;
   }
 
-  const { error: insertError } = await supabase.from("rag_artifacts").insert({
+  const { data: inserted, error: insertError } = await supabase
+    .from("rag_artifacts")
+    .insert({
     artifact_type: "plan_trabajo",
     agencia_id: agenciaId,
     empresa_id: empresaId,
     title,
-    status: "plan",
+    status,
     inputs_json: { brief_id: briefId, periodo },
     content_json: contenidoJson,
-  });
+    model_used: modelUsed ?? null,
+    prompt_version: promptVersion ?? null,
+  })
+    .select("id")
+    .single();
 
   if (insertError) {
     throw new Error(`No se pudo crear plan de trabajo: ${insertError.message}`);
   }
+
+  return inserted.id as string;
 }
 
 async function upsertCalendarioArtifact(params: {
@@ -453,9 +636,14 @@ async function upsertCalendarioArtifact(params: {
   periodo: string;
   contenidoJson: unknown;
   alcanceCalendario?: Record<string, number>;
+  modelUsed?: string;
+  promptVersion?: string;
+  status?: string;
 }) {
   const { empresaId, agenciaId, planArtifactId, periodo, contenidoJson, alcanceCalendario } =
     params;
+  const { modelUsed, promptVersion } = params;
+  const status = params.status ?? "plan";
   const supabase = await requireUser();
   const title = `Calendario ${periodo}`;
   const inputsPayload =
@@ -481,9 +669,11 @@ async function upsertCalendarioArtifact(params: {
       .from("rag_artifacts")
       .update({
         content_json: contenidoJson,
-        status: "plan",
+        status,
         version: (existing.version ?? 1) + 1,
         inputs_json: inputsPayload,
+        model_used: modelUsed ?? null,
+        prompt_version: promptVersion ?? null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
@@ -491,22 +681,30 @@ async function upsertCalendarioArtifact(params: {
     if (updateError) {
       throw new Error(`No se pudo actualizar calendario: ${updateError.message}`);
     }
-    return;
+    return existing.id as string;
   }
 
-  const { error: insertError } = await supabase.from("rag_artifacts").insert({
+  const { data: inserted, error: insertError } = await supabase
+    .from("rag_artifacts")
+    .insert({
     artifact_type: "calendario",
     agencia_id: agenciaId,
     empresa_id: empresaId,
     title,
-    status: "plan",
+    status,
     inputs_json: inputsPayload,
     content_json: contenidoJson,
-  });
+    model_used: modelUsed ?? null,
+    prompt_version: promptVersion ?? null,
+  })
+    .select("id")
+    .single();
 
   if (insertError) {
     throw new Error(`No se pudo crear calendario: ${insertError.message}`);
   }
+
+  return inserted.id as string;
 }
 
 function parseAlcanceCalendario(raw: string) {
@@ -675,20 +873,101 @@ function assignCalendarDatesByMonth(
   };
 
   const ym = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`;
+  const isSunday = (day: number) => new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
+  const nonSundayDaysInRange = (startDay: number, endDay: number) => {
+    const days: number[] = [];
+    for (let day = startDay; day <= endDay; day += 1) {
+      if (!isSunday(day)) days.push(day);
+    }
+    return days;
+  };
+
   return weeks.map((week) => {
     const [startDay, endDay] = ranges[week.semana] ?? [1, lastDay];
-    const span = Math.max(1, endDay - startDay + 1);
+    const allowedDays = nonSundayDaysInRange(startDay, endDay);
+    const fallbackDays = Array.from({ length: Math.max(1, endDay - startDay + 1) }, (_, idx) => startDay + idx);
+    const assignableDays = allowedDays.length > 0 ? allowedDays : fallbackDays;
     const total = Math.max(1, week.piezas.length);
     const piezas = week.piezas.map((piece, idx) => {
-      const day = Math.min(
-        endDay,
-        startDay + Math.floor((idx * span) / total),
-      );
+      const day = assignableDays[Math.min(assignableDays.length - 1, Math.floor((idx * assignableDays.length) / total))];
       const fecha = `${ym}-${String(day).padStart(2, "0")}`;
       return { ...piece, fecha };
     });
     return { ...week, piezas };
   });
+}
+
+function moveGeneratedDateOffSunday(date: string) {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return date;
+
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  const current = new Date(Date.UTC(year, month - 1, day));
+  if (current.getUTCDay() !== 0) return date;
+
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day > 1) {
+    return `${match[1]}-${match[2]}-${String(day - 1).padStart(2, "0")}`;
+  }
+  if (day < lastDay) {
+    return `${match[1]}-${match[2]}-${String(day + 1).padStart(2, "0")}`;
+  }
+  return date;
+}
+
+function forceGeneratedCalendarOffSundays(content: unknown) {
+  const root =
+    content && typeof content === "object"
+      ? ({ ...(content as Record<string, unknown>) } as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+  const calendario =
+    root.calendario && typeof root.calendario === "object"
+      ? ({ ...(root.calendario as Record<string, unknown>) } as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+  const items = Array.isArray(calendario.items) ? calendario.items : [];
+  const semanas = Array.isArray(root.semanas) ? root.semanas : [];
+
+  const nextItems = items.map((item) => {
+    if (!item || typeof item !== "object") return item;
+    const row = item as Record<string, unknown>;
+    const fecha = typeof row.fecha === "string" ? row.fecha : "";
+    if (!fecha) return item;
+    return {
+      ...row,
+      fecha: moveGeneratedDateOffSunday(fecha),
+    };
+  });
+
+  const nextSemanas = semanas.map((week) => {
+    if (!week || typeof week !== "object") return week;
+    const weekRow = week as Record<string, unknown>;
+    const piezas = Array.isArray(weekRow.piezas) ? weekRow.piezas : [];
+
+    return {
+      ...weekRow,
+      piezas: piezas.map((piece) => {
+        if (!piece || typeof piece !== "object") return piece;
+        const pieceRow = piece as Record<string, unknown>;
+        const fecha = typeof pieceRow.fecha === "string" ? pieceRow.fecha : "";
+        if (!fecha) return piece;
+        return {
+          ...pieceRow,
+          fecha: moveGeneratedDateOffSunday(fecha),
+        };
+      }),
+    };
+  });
+
+  return {
+    ...root,
+    semanas: nextSemanas,
+    calendario: {
+      ...calendario,
+      items: nextItems,
+    },
+  };
 }
 
 const CALENDAR_CHANNELS = [
@@ -1580,9 +1859,25 @@ export async function saveBec(formData: FormData) {
   metadataJson.objetivo = objetivo;
   metadataJson.problema = problema;
 
+  const monthlyDeliverables = deriveMonthlyDeliverablesFromMetadata(metadataJson);
+  if (monthlyDeliverables && contenidoJson && typeof contenidoJson === "object") {
+    const root = contenidoJson as Record<string, unknown>;
+    const currentFields =
+      root.fields && typeof root.fields === "object"
+        ? (root.fields as Record<string, unknown>)
+        : {};
+    contenidoJson = {
+      ...root,
+      fields: {
+        ...currentFields,
+        ["Entregables Mensuales"]: monthlyDeliverables,
+      },
+    };
+  }
+
   const { data: current, error: currentError } = await supabase
     .from("bec")
-    .select("id, version")
+    .select("id, version, is_locked, contenido_json")
     .eq("empresa_id", empresaId)
     .maybeSingle();
 
@@ -1590,12 +1885,36 @@ export async function saveBec(formData: FormData) {
     throw new Error(`No se pudo leer BEC actual: ${currentError.message}`);
   }
 
+  let becId = current?.id ?? "";
+  const becScores = buildBecScores({
+    agenciaId,
+    empresaId,
+    becId: becId || "pending",
+    content: contenidoJson,
+  });
+  const scoreMap = Object.fromEntries(
+    becScores.map((row) => [row.score_type, row.score_value]),
+  ) as Partial<Record<"confidence" | "data_quality" | "risk", number>>;
+  const workflow = buildBecWorkflow({
+    content: contenidoJson,
+    scores: scoreMap,
+    isLocked: false,
+    previousWorkflow: current?.contenido_json,
+  });
+  contenidoJson = attachWorkflow(
+    contenidoJson && typeof contenidoJson === "object"
+      ? (contenidoJson as Record<string, unknown>)
+      : { raw: contenidoJson },
+    workflow,
+  );
+
   if (current?.id) {
     const { error: updateError } = await supabase
       .from("bec")
       .update({
         contenido_json: contenidoJson,
         version: (current.version ?? 1) + 1,
+        is_locked: false,
         updated_at: new Date().toISOString(),
       })
       .eq("id", current.id);
@@ -1603,15 +1922,22 @@ export async function saveBec(formData: FormData) {
     if (updateError) {
       throw new Error(`No se pudo actualizar BEC: ${updateError.message}`);
     }
+    becId = current.id;
   } else {
-    const { error: insertError } = await supabase.from("bec").insert({
-      empresa_id: empresaId,
-      contenido_json: contenidoJson,
-    });
+    const { data: inserted, error: insertError } = await supabase
+      .from("bec")
+      .insert({
+        empresa_id: empresaId,
+        contenido_json: contenidoJson,
+        is_locked: false,
+      })
+      .select("id")
+      .single();
 
     if (insertError) {
       throw new Error(`No se pudo crear BEC: ${insertError.message}`);
     }
+    becId = inserted.id as string;
   }
 
   const { error: empresaUpdateError } = await supabase
@@ -1629,17 +1955,30 @@ export async function saveBec(formData: FormData) {
     throw new Error(`No se pudo actualizar contexto de empresa: ${empresaUpdateError.message}`);
   }
 
+  const finalBecScores = buildBecScores({
+    agenciaId,
+    empresaId,
+    becId,
+    content: contenidoJson,
+  });
+  await replaceBecScores({
+    supabase,
+    becId,
+    rows: finalBecScores,
+  });
+
   revalidateEmpresaRoutes(empresaId);
 }
 
 export async function createBrief(formData: FormData) {
+  const { supabase, agenciaId } = await requireUserAgenciaContext();
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const periodo = String(formData.get("periodo") ?? "").trim();
   const estado = String(formData.get("estado") ?? "plan").trim() || "plan";
   const contenido = String(formData.get("contenido") ?? "").trim();
 
   if (!empresaId || !periodo || !contenido) {
-    return;
+    return null;
   }
 
   const periodDate = new Date(periodo);
@@ -1653,9 +1992,20 @@ export async function createBrief(formData: FormData) {
     // Keep plain text payload.
   }
 
-  await upsertBrief(empresaId, normalizedPeriodo, estado, contenidoJson);
+  const briefId = await upsertBrief(empresaId, normalizedPeriodo, estado, contenidoJson);
+  await syncBriefEvaluation({
+    supabase,
+    agenciaId,
+    empresaId,
+    briefId,
+    periodo: normalizedPeriodo,
+    briefContent: contenidoJson,
+    briefStatus: estado,
+    updatedAt: new Date().toISOString(),
+  });
 
   revalidateEmpresaRoutes(empresaId);
+  return { briefId };
 }
 
 export async function updatePlanTrabajoArtifact(formData: FormData) {
@@ -1682,7 +2032,7 @@ export async function updatePlanTrabajoArtifact(formData: FormData) {
 
   const { data: existing, error: existingError } = await supabase
     .from("rag_artifacts")
-    .select("id, version")
+    .select("id, version, content_json, updated_at")
     .eq("id", planId)
     .eq("artifact_type", "plan_trabajo")
     .eq("empresa_id", empresaId)
@@ -1697,11 +2047,31 @@ export async function updatePlanTrabajoArtifact(formData: FormData) {
     throw new Error("Plan de trabajo no encontrado o sin acceso.");
   }
 
+  const planScores = buildPlanArtifactScores({
+    agenciaId,
+    empresaId,
+    artifactId: existing.id,
+    content: contentJson,
+  });
+  const planScoreMap = Object.fromEntries(
+    planScores
+      .filter((row) => row.entity_level === "global")
+      .map((row) => [row.score_type, row.score_value]),
+  ) as Partial<Record<"confidence" | "data_quality" | "risk" | "priority", number>>;
+  const planWorkflow = buildPlanWorkflow({
+    content: contentJson,
+    status,
+    scores: planScoreMap,
+    previousWorkflow: existing.content_json,
+    updatedAt: existing.updated_at,
+  });
+  contentJson = attachWorkflow(contentJson, planWorkflow);
+
   const { error: updateError } = await supabase
     .from("rag_artifacts")
     .update({
       title,
-      status,
+      status: planWorkflow.status,
       content_json: contentJson,
       version: (existing.version ?? 1) + 1,
       updated_at: new Date().toISOString(),
@@ -1711,6 +2081,12 @@ export async function updatePlanTrabajoArtifact(formData: FormData) {
   if (updateError) {
     throw new Error(`No se pudo actualizar plan de trabajo: ${updateError.message}`);
   }
+
+  await replaceArtifactScores({
+    supabase,
+    artifactId: existing.id,
+    rows: planScores,
+  });
 
   revalidateEmpresaRoutes(empresaId);
 }
@@ -1737,7 +2113,7 @@ export async function updateCalendarioArtifact(formData: FormData) {
 
   const { data: existing, error: existingError } = await supabase
     .from("rag_artifacts")
-    .select("id, version")
+    .select("id, version, content_json, updated_at")
     .eq("id", calendarioId)
     .eq("artifact_type", "calendario")
     .eq("empresa_id", empresaId)
@@ -1752,11 +2128,31 @@ export async function updateCalendarioArtifact(formData: FormData) {
     throw new Error("Calendario no encontrado o sin acceso.");
   }
 
+  const calendarioScores = buildCalendarioArtifactScores({
+    agenciaId,
+    empresaId,
+    artifactId: existing.id,
+    content: contentJson,
+  });
+  const calendarioScoreMap = Object.fromEntries(
+    calendarioScores
+      .filter((row) => row.entity_level === "global")
+      .map((row) => [row.score_type, row.score_value]),
+  ) as Partial<Record<"confidence" | "data_quality" | "risk" | "priority", number>>;
+  const calendarioWorkflow = buildCalendarioWorkflow({
+    content: contentJson,
+    status,
+    scores: calendarioScoreMap,
+    previousWorkflow: existing.content_json,
+    updatedAt: existing.updated_at,
+  });
+  contentJson = attachWorkflow(contentJson, calendarioWorkflow);
+
   const { error: updateError } = await supabase
     .from("rag_artifacts")
     .update({
       title,
-      status,
+      status: calendarioWorkflow.status,
       content_json: contentJson,
       version: (existing.version ?? 1) + 1,
       updated_at: new Date().toISOString(),
@@ -1765,6 +2161,131 @@ export async function updateCalendarioArtifact(formData: FormData) {
 
   if (updateError) {
     throw new Error(`No se pudo actualizar calendario: ${updateError.message}`);
+  }
+
+  await replaceArtifactScores({
+    supabase,
+    artifactId: existing.id,
+    rows: calendarioScores,
+  });
+
+  revalidateEmpresaRoutes(empresaId);
+}
+
+export async function updateBecApproval(formData: FormData) {
+  const { supabase, userId } = await requireUserAgenciaContext();
+  const empresaId = String(formData.get("empresa_id") ?? "").trim();
+  const becId = String(formData.get("bec_id") ?? "").trim();
+  const action = String(formData.get("approval_action") ?? "").trim() as
+    | "approve"
+    | "reopen"
+    | "request_changes";
+  const note = String(formData.get("approval_note") ?? "").trim();
+
+  if (!empresaId || !becId || !action) {
+    return;
+  }
+
+  const { data: bec, error } = await supabase
+    .from("bec")
+    .select("id, contenido_json")
+    .eq("id", becId)
+    .eq("empresa_id", empresaId)
+    .maybeSingle();
+
+  if (error || !bec) {
+    throw new Error(error?.message || "BEC no encontrado.");
+  }
+
+  const currentWorkflow = readWorkflow(bec.contenido_json);
+  if (!currentWorkflow) {
+    throw new Error("El BEC no tiene workflow operativo disponible.");
+  }
+
+  const nextWorkflow = applyApprovalDecision({
+    workflow: currentWorkflow,
+    userId,
+    note,
+    action,
+  });
+  const currentContent =
+    bec.contenido_json && typeof bec.contenido_json === "object"
+      ? (bec.contenido_json as Record<string, unknown>)
+      : { raw: bec.contenido_json };
+  const nextContent = attachWorkflow(currentContent, nextWorkflow);
+
+  const { error: updateError } = await supabase
+    .from("bec")
+    .update({
+      contenido_json: nextContent,
+      is_locked: action === "approve",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", becId);
+
+  if (updateError) {
+    throw new Error(`No se pudo actualizar aprobacion del BEC: ${updateError.message}`);
+  }
+
+  revalidateEmpresaRoutes(empresaId);
+}
+
+export async function updateArtifactApproval(formData: FormData) {
+  const { supabase, agenciaId, userId } = await requireUserAgenciaContext();
+  const empresaId = String(formData.get("empresa_id") ?? "").trim();
+  const artifactId = String(formData.get("artifact_id") ?? "").trim();
+  const artifactType = String(formData.get("artifact_type") ?? "").trim();
+  const action = String(formData.get("approval_action") ?? "").trim() as
+    | "approve"
+    | "reopen"
+    | "request_changes";
+  const note = String(formData.get("approval_note") ?? "").trim();
+
+  if (!empresaId || !artifactId || !artifactType || !action) {
+    return;
+  }
+
+  const { data: artifact, error } = await supabase
+    .from("rag_artifacts")
+    .select("id, status, content_json")
+    .eq("id", artifactId)
+    .eq("artifact_type", artifactType)
+    .eq("empresa_id", empresaId)
+    .eq("agencia_id", agenciaId)
+    .maybeSingle();
+
+  if (error || !artifact) {
+    throw new Error(error?.message || "Artefacto no encontrado.");
+  }
+
+  const currentWorkflow = readWorkflow(artifact.content_json);
+  if (!currentWorkflow) {
+    throw new Error("El artefacto no tiene workflow operativo disponible.");
+  }
+
+  const nextWorkflow = applyApprovalDecision({
+    workflow: currentWorkflow,
+    userId,
+    note,
+    action,
+  });
+  const currentContent =
+    artifact.content_json && typeof artifact.content_json === "object"
+      ? (artifact.content_json as Record<string, unknown>)
+      : { raw: artifact.content_json };
+  const nextContent = attachWorkflow(currentContent, nextWorkflow);
+
+  const { error: updateError } = await supabase
+    .from("rag_artifacts")
+    .update({
+      status: nextWorkflow.status,
+      content_json: nextContent,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", artifactId);
+
+  if (updateError) {
+    throw new Error(`No se pudo actualizar aprobacion del artefacto: ${updateError.message}`);
   }
 
   revalidateEmpresaRoutes(empresaId);
@@ -1812,17 +2333,17 @@ export async function generateBecDraft(formData: FormData) {
     )
     .join("\n\n");
 
-  const generatedBec = await ollamaChat({
+  const generatedBec = await aiChat({
     systemPrompt:
-      "Eres estratega de marketing. Responde en JSON vÃ¡lido para un BEC comercial.",
-    userPrompt: `Genera un BEC para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nContexto documental:\n${context}\n\nDevuelve SOLO JSON con esta estructura:\n{"resumen_ejecutivo":"","propuesta_valor":"","audiencias":[],"mensajes_clave":[],"canales_recomendados":[],"riesgos":[],"proximos_pasos":[]}`,
+      "Eres estratega senior de marketing y negocio B2B. Respondes SOLO JSON valido para un BEC comercial, sin inventar datos criticos.",
+    userPrompt: `Genera un BEC para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nContexto documental:\n${context || "Sin documentos"}\n\nReglas:\n1) Usa primero metadata_json y evidencia documental; no inventes cifras, claims ni restricciones.\n2) El BEC debe sonar ejecutivo, concreto y orientado a decisiones.\n3) Si falta evidencia, formula el punto como supuesto explicitamente dentro del texto.\n4) No entregues frases vacias como "mejorar presencia digital" sin explicar para que, para quien y con que efecto.\n5) En propuesta_valor y mensajes_clave, prioriza diferenciacion real, tension comercial y beneficio verificable.\n6) En audiencias, define segmentos con logica de negocio, no etiquetas superficiales.\n7) En canales_recomendados, justifica implicitamente por adecuacion al negocio, no por moda.\n8) En riesgos, incluye riesgos comerciales, operativos, regulatorios y de marca si aplican.\n9) En proximos_pasos, prioriza acciones de alto impacto y baja ambiguedad.\n\nDevuelve SOLO JSON con esta estructura:\n{"resumen_ejecutivo":"","propuesta_valor":"","audiencias":[],"mensajes_clave":[],"canales_recomendados":[],"riesgos":[],"proximos_pasos":[]}`,
     temperature: 0.2,
   });
 
-  const supabase = await requireUser();
+  const { supabase, agenciaId } = await requireUserAgenciaContext();
   const { data: current } = await supabase
     .from("bec")
-    .select("id, version")
+    .select("id, version, contenido_json")
     .eq("empresa_id", empresaId)
     .maybeSingle();
 
@@ -1833,19 +2354,65 @@ export async function generateBecDraft(formData: FormData) {
     // Keep raw output if model did not return valid JSON.
   }
 
+  const scoreSeed = buildBecScores({
+    agenciaId,
+    empresaId,
+    becId: current?.id ?? "pending",
+    content: contenidoJson,
+  });
+  const scoreMap = Object.fromEntries(
+    scoreSeed.map((row) => [row.score_type, row.score_value]),
+  ) as Partial<Record<"confidence" | "data_quality" | "risk", number>>;
+  const workflow = buildBecWorkflow({
+    content: contenidoJson,
+    scores: scoreMap,
+    isLocked: false,
+    previousWorkflow: current?.contenido_json,
+  });
+  contenidoJson = attachWorkflow(
+    contenidoJson && typeof contenidoJson === "object"
+      ? (contenidoJson as Record<string, unknown>)
+      : { raw: contenidoJson },
+    workflow,
+  );
+
+  let becId = current?.id ?? "";
+
   if (current?.id) {
     await supabase
       .from("bec")
       .update({
         contenido_json: contenidoJson,
         version: (current.version ?? 1) + 1,
+        is_locked: false,
         updated_at: new Date().toISOString(),
       })
       .eq("id", current.id);
+    becId = current.id;
   } else {
-    await supabase.from("bec").insert({
-      empresa_id: empresaId,
-      contenido_json: contenidoJson,
+    const { data: inserted } = await supabase
+      .from("bec")
+      .insert({
+        empresa_id: empresaId,
+        contenido_json: contenidoJson,
+        is_locked: false,
+      })
+      .select("id")
+      .single();
+    becId = (inserted?.id as string) ?? "";
+  }
+
+  if (becId) {
+    const becScores = buildBecScores({
+      agenciaId,
+      empresaId,
+      becId,
+      content: contenidoJson,
+    });
+    await replaceBecScores({
+      supabase,
+      becId,
+      rows: becScores,
     });
   }
 
@@ -1857,7 +2424,7 @@ export async function generateBriefDraft(formData: FormData) {
   const periodo = String(formData.get("periodo") ?? "").trim();
 
   if (!empresaId || !periodo) {
-    return;
+    return null;
   }
 
   const periodDate = new Date(periodo);
@@ -1866,8 +2433,12 @@ export async function generateBriefDraft(formData: FormData) {
 
   const { empresa, docs } = await getEmpresaContext(empresaId);
   if (!empresa) {
-    return;
+    return null;
   }
+  const empresaMetadata =
+    empresa.metadata_json && typeof empresa.metadata_json === "object"
+      ? (empresa.metadata_json as Record<string, unknown>)
+      : {};
 
   const { supabase, agenciaId } = await requireUserAgenciaContext();
   const { data: becActual } = await supabase
@@ -1889,7 +2460,7 @@ export async function generateBriefDraft(formData: FormData) {
       .select("prompt_type, prompt_text, activo, updated_at")
       .eq("agencia_id", agenciaId)
       .eq("activo", true)
-      .in("prompt_type", ["bec", "plan_trabajo"])
+      .in("prompt_type", ["bec", "brief", "plan_trabajo"])
       .order("updated_at", { ascending: false }),
   ]);
 
@@ -1910,6 +2481,7 @@ export async function generateBriefDraft(formData: FormData) {
   const becContext = becActual?.contenido_json
     ? JSON.stringify(becActual.contenido_json, null, 2).slice(0, 14000)
     : "Sin BEC previo";
+  const empresaMetadataContext = JSON.stringify(empresaMetadata, null, 2).slice(0, 10000);
 
   const promptsContext = (promptRows ?? [])
     .map(
@@ -1925,10 +2497,10 @@ export async function generateBriefDraft(formData: FormData) {
     BRIEF_TEXT_FIELDS.map((field) => [field, ""]),
   );
 
-  const generatedBrief = await ollamaChat({
+  const generatedBrief = await aiChat({
     systemPrompt:
-      "Eres planner de marketing senior para agencias. Responde en JSON valido para un brief mensual.",
-    userPrompt: `Genera el brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nBEC actual (fuente estrategica):\n${becContext}\n\nConocimiento documental de agencia (lineamientos globales):\n${agencyContext || "Sin documentos globales de agencia"}\n\nConocimiento documental de empresa (realidad operativa y comercial):\n${context || "Sin documentos de empresa"}\n\nPrompts activos de agencia:\n${promptsContext || "Sin prompts activos"}\n\nInstrucciones clave:\n1) Usa el BEC como base, no lo ignores.\n2) Contrasta el BEC contra evidencia reciente de documentos de empresa y agencia.\n3) Explicita que se mantiene del BEC y que debe ajustarse para este mes.\n4) En cada ajuste, cita evidencia documental concreta.\n5) Completa el formulario exactamente con las claves indicadas.\n\nDevuelve SOLO JSON con esta estructura exacta:\n{"objectives":${JSON.stringify(objectivesTemplate)},"fields":${JSON.stringify(fieldsTemplate)},"strategicChanges":"si|no","cambios_sobre_bec":[{"tema":"","se_mantiene":"","se_ajusta":"","razon":"","evidencia":""}]}\n\nRegla de formato:\n- En objectives, marca true solo donde aplique.\n- En fields, completa texto accionable y especifico por campo.\n- strategicChanges debe ser "si" o "no".`,
+      "Eres planner senior de marketing para agencias. Respondes SOLO JSON valido para un brief mensual. No inventes datos. Debes sonar estrategico, concreto y util para operar.",
+    userPrompt: `Genera el brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa (fuente operativa prioritaria para cantidades, temas, alcance y restricciones):\n${empresaMetadataContext || "{}"}\n\nBEC actual (fuente estrategica):\n${becContext}\n\nConocimiento documental de agencia (lineamientos globales):\n${agencyContext || "Sin documentos globales de agencia"}\n\nConocimiento documental de empresa (realidad operativa y comercial):\n${context || "Sin documentos de empresa"}\n\nPrompts activos de agencia:\n${promptsContext || "Sin prompts activos"}\n\nInstrucciones clave:\n1) Usa metadata_json como fuente prioritaria para cantidades, temas, frecuencias, responsables, dependencias y alcance operativo del mes.\n2) Usa el BEC como base estrategica, pero no inventes nada que no este sustentado por metadata_json, BEC o documentos.\n3) Contrasta el BEC contra evidencia reciente de documentos de empresa y agencia.\n4) Explicita que se mantiene del BEC y que debe ajustarse para este mes.\n5) En cada ajuste, cita evidencia documental o metadata concreta.\n6) Si un dato no existe con trazabilidad suficiente, escribe exactamente: "Pendiente de validar con cliente segun metadata_json y contexto actual."\n7) No inventes montos, fechas, promociones, campañas, responsables, assets, aprobadores ni distribuciones de presupuesto.\n8) Si no hay lanzamiento, fecha clave o campaña confirmada, usa "-" solo en esos campos descriptivos; para datos operativos faltantes usa la frase de pendiente.\n9) Cada campo debe ser accionable, con criterio y especificidad. Evita frases vacias como "mejorar engagement" o "reforzar branding" sin contexto.\n10) Si planteas mensajes, que tengan angulo, prioridad comercial y foco de negocio.\n11) Si planteas temas de contenido, que se vean como lineas editoriales reales, no categorias blandas.\n12) Completa el formulario exactamente con las claves indicadas.\n\nDevuelve SOLO JSON con esta estructura exacta:\n{"objectives":${JSON.stringify(objectivesTemplate)},"fields":${JSON.stringify(fieldsTemplate)},"strategicChanges":"si|no","cambios_sobre_bec":[{"tema":"","se_mantiene":"","se_ajusta":"","razon":"","evidencia":""}]}\n\nRegla de formato:\n- En objectives, marca true solo donde aplique y tenga sustento.\n- En fields, completa texto accionable y especifico por campo sin inventar datos.\n- strategicChanges debe ser "si" o "no".`,
     temperature: 0.3,
   });
 
@@ -1948,10 +2520,10 @@ export async function generateBriefDraft(formData: FormData) {
 
     if (missingFields.length > 0) {
       try {
-        const completionDraft = await ollamaChat({
+        const completionDraft = await aiChat({
           systemPrompt:
-            "Eres planner de marketing. Completa campos faltantes de brief con texto concreto y accionable en espanol.",
-          userPrompt: `Completa SOLO los campos faltantes del brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nBEC:\n${becContext}\n\nContexto agencia:\n${agencyContext || "Sin documentos globales de agencia"}\n\nContexto empresa:\n${context || "Sin documentos de empresa"}\n\nPrompts activos:\n${promptsContext || "Sin prompts activos"}\n\nCampos faltantes:\n${JSON.stringify(missingFields, null, 2)}\n\nDevuelve SOLO JSON:\n{"fields":{"<campo>":"<texto>"}}`,
+            "Eres planner de marketing. Completa campos faltantes de brief con texto concreto, ejecutivo y accionable en espanol. No inventes datos.",
+          userPrompt: `Completa SOLO los campos faltantes del brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa (fuente operativa prioritaria):\n${empresaMetadataContext || "{}"}\n\nBEC:\n${becContext}\n\nContexto agencia:\n${agencyContext || "Sin documentos globales de agencia"}\n\nContexto empresa:\n${context || "Sin documentos de empresa"}\n\nPrompts activos:\n${promptsContext || "Sin prompts activos"}\n\nCampos faltantes:\n${JSON.stringify(missingFields, null, 2)}\n\nReglas:\n1) No inventes montos, fechas, nombres, campañas ni cantidades.\n2) Usa metadata_json como fuente prioritaria cuando exista.\n3) Si no hay evidencia suficiente, responde exactamente "Pendiente de validar con cliente segun metadata_json y contexto actual."\n4) Si hay evidencia, no respondas de forma vaga; entrega una respuesta util para operar.\n\nDevuelve SOLO JSON:\n{"fields":{"<campo>":"<texto>"}}`,
           temperature: 0.2,
         });
 
@@ -1998,9 +2570,20 @@ export async function generateBriefDraft(formData: FormData) {
     };
   }
 
-  await upsertBrief(empresaId, normalizedPeriodo, "plan", contenidoJson);
+  const briefId = await upsertBrief(empresaId, normalizedPeriodo, "revision", contenidoJson);
+  await syncBriefEvaluation({
+    supabase,
+    agenciaId,
+    empresaId,
+    briefId,
+    periodo: normalizedPeriodo,
+    briefContent: contenidoJson,
+    briefStatus: "revision",
+    updatedAt: new Date().toISOString(),
+  });
 
   revalidateEmpresaRoutes(empresaId);
+  return { briefId };
 }
 
 export async function generatePlanTrabajoDraft(formData: FormData) {
@@ -2122,10 +2705,12 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
     alcance_calendario: alcanceCalendario,
   });
 
-  const generatedPlan = await ollamaChat({
+  const empresaMetadataContext = JSON.stringify(empresaMetadata, null, 2).slice(0, 10000);
+
+  const generatedPlan = await aiChat({
     systemPrompt:
-      "Eres PM y estratega senior de marketing para agencias. Respondes SOLO JSON valido y sin texto adicional.",
-    userPrompt: `Construye un plan de trabajo mensual para ${brief.periodo} con la logica de una plantilla ejecutiva tipo cuadro, similar a esta estructura de secciones: comunidad, resumen de actualizaciones, cantidad de contenidos a desarrollar, pilares de comunicacion, contenido sugerido, productos/servicios a destacar, mensajes destacados, fechas importantes, promociones, plan de medios, eventos, notas adicionales y pendientes del cliente.\n\nAgencia:\n${JSON.stringify(agencia ?? {}, null, 2)}\n\nEmpresa:\n${JSON.stringify(empresa, null, 2)}\n\nBEC:\n${becContext}\n\nBrief seleccionado:\n${briefContext}\n\nDocumento adjunto para esta generacion:\n${supportDocContext || "Sin documento adjunto"}\n\nConocimiento de empresa:\n${empresaDocsContext || "Sin documentos de empresa"}\n\nConocimiento de agencia:\n${agenciaDocsContext || "Sin documentos globales de agencia"}\n\nPrompts activos:\n${promptContext || "Sin prompts activos"}\n\nReglas clave:\n1) Ajusta el contenido al contexto de Peru.\n2) Mantén coherencia total con BEC + BRIEF + evidencia documental.\n3) Si existe documento adjunto, usalo como insumo prioritario para completar y afinar el plan.\n4) Respeta restricciones legales/normativas y tono de voz.\n5) Incluye alcance_calendario exactamente como pauta operativa.\n6) En comunidad, usa metricas resumidas por red con campos red, mes_anterior y meta.\n7) En resumen_actualizaciones, redacta una sintesis ejecutiva y observaciones puntuales.\n8) En cantidad_contenidos, usa red, cantidad y formatos esperados.\n9) En cada item de cantidad_contenidos, sugiere SIEMPRE formatos concretos por red si la cantidad es mayor a 0. Ejemplos validos: reels, carruseles, post estaticos, historias, mails, blogs, banners, videos cortos, anuncios, piezas JPG o MP4. No dejes formatos vacio salvo que la cantidad sea 0.\n10) En pilares_comunicacion, reparte porcentajes y enfocalos en estrategia, no en copies.\n11) En contenido_sugerido genera una verdadera lluvia de ideas por canal. Para cada canal con cantidad > 0, entrega varias ideas generales, no una sola si el canal admite mas volumen. Como referencia, genera entre 3 y 8 ideas por canal segun el peso del canal, sin repetir enfoques. NO des contenidos concretos. SOLO devuelve ideas generales o lineas tematicas por canal. No escribas captions, guiones, copies, textos finales, hashtags, enlaces ni piezas ya redactadas. Cada idea debe ser breve, abstracta y util para que luego el equipo creativo la desarrolle.\n12) En fechas_importantes incluye fechas del mes realmente utiles para planificacion: feriados de Peru, efemerides comerciales, festividades, campañas estacionales y fechas relacionadas con la industria o negocio del cliente cuando apliquen. Si no hay una fecha exacta, puedes incluir hitos comerciales del mes claramente descritos.\n13) En promociones, si no aplica, usa exactamente \"NO APLICA\".\n14) En plan_medios_link, deja URL o texto corto si no existe link final.\n\nDevuelve SOLO JSON con esta estructura exacta de raiz:\n${JSON.stringify({ plan_trabajo: defaultPlanTrabajo })}`,
+      "Eres PM, estratega senior de marketing y director de contenido para agencias. Respondes SOLO JSON valido y sin texto adicional. Debes producir planes con criterio ejecutivo y riqueza editorial real.",
+    userPrompt: `Construye un plan de trabajo mensual para ${brief.periodo} con la logica de una plantilla ejecutiva tipo cuadro, similar a esta estructura de secciones: comunidad, resumen de actualizaciones, cantidad de contenidos a desarrollar, pilares de comunicacion, contenido sugerido, productos/servicios a destacar, mensajes destacados, fechas importantes, promociones, plan de medios, eventos, notas adicionales y pendientes del cliente.\n\nAgencia:\n${JSON.stringify(agencia ?? {}, null, 2)}\n\nEmpresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa:\n${empresaMetadataContext || "{}"}\n\nBEC:\n${becContext}\n\nBrief seleccionado:\n${briefContext}\n\nDocumento adjunto para esta generacion:\n${supportDocContext || "Sin documento adjunto"}\n\nConocimiento de empresa:\n${empresaDocsContext || "Sin documentos de empresa"}\n\nConocimiento de agencia:\n${agenciaDocsContext || "Sin documentos globales de agencia"}\n\nPrompts activos:\n${promptContext || "Sin prompts activos"}\n\nReglas clave:\n1) Ajusta el contenido al contexto de Peru.\n2) Mantén coherencia total con BEC + BRIEF + metadata_json + evidencia documental.\n3) Si existe documento adjunto, usalo como insumo prioritario para completar y afinar el plan.\n4) Respeta restricciones legales/normativas y tono de voz.\n5) Incluye alcance_calendario exactamente como pauta operativa.\n6) En comunidad, usa metricas resumidas por red con campos red, mes_anterior y meta.\n7) En resumen_actualizaciones, redacta una sintesis ejecutiva y observaciones puntuales con diagnostico y criterio, no frases vacias.\n8) En cantidad_contenidos, usa red, cantidad y formatos esperados.\n9) No propongas canales fuera de alcance_calendario. Si un canal no aparece en alcance_calendario, excluyelo de comunidad, cantidad_contenidos y contenido_sugerido.\n10) En cada item de cantidad_contenidos, sugiere SIEMPRE formatos concretos por red si la cantidad es mayor a 0. Ejemplos validos: reels, carruseles, post estaticos, historias, mails, blogs, banners, videos cortos, anuncios, piezas JPG o MP4. No dejes formatos vacio salvo que la cantidad sea 0.\n11) En pilares_comunicacion, reparte porcentajes y enfocalos en estrategia, no en copies.\n12) En contenido_sugerido genera una verdadera lluvia de ideas por canal. Para cada canal con cantidad > 0, entrega varias ideas generales, no una sola si el canal admite mas volumen. Como referencia, genera entre 3 y 8 ideas por canal segun el peso del canal, sin repetir enfoques. NO des contenidos concretos. SOLO devuelve ideas generales o lineas tematicas por canal. No escribas captions, guiones, copies, textos finales, hashtags, enlaces ni piezas ya redactadas.\n13) Si el canal o formato admite video, reparte las ideas entre varios arquetipos, no una sola formula repetida. Mezcla enfoques como: testimonio, POV ejecutivo, demo corta, tutorial paso a paso, error comun, mito vs realidad, pregunta incomoda, comparativa, checklist visual, objecion-respuesta, detras de camaras, fragmento de caso de exito, storytelling de problema-solucion y recap de webinar.\n14) Para videos, evita ideas clonadas. Cada propuesta debe cambiar promesa, estructura y energia.\n15) Evita ideas genericas como \"hablar sobre beneficios\" o \"post institucional\". Cada idea debe tener angulo, tension o promesa clara.\n16) En fechas_importantes incluye fechas del mes realmente utiles para planificacion: feriados de Peru, efemerides comerciales, festividades, campañas estacionales y fechas relacionadas con la industria o negocio del cliente cuando apliquen. Si no hay una fecha exacta, puedes incluir hitos comerciales del mes claramente descritos.\n17) En promociones, si no aplica, usa exactamente \"NO APLICA\".\n18) En plan_medios_link, deja URL o texto corto si no existe link final.\n19) No inventes datos criticos. Si falta evidencia, deja el contenido util pero conservador y alineado a BEC/brief/metadata.\n20) El resultado debe sentirse senior: mas criterio, mas contraste, mas especificidad y menos frases plantilla.\n\nDevuelve SOLO JSON con esta estructura exacta de raiz:\n${JSON.stringify({ plan_trabajo: defaultPlanTrabajo })}`,
     temperature: 0.25,
   });
 
@@ -2145,12 +2730,48 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
     );
   }
 
-  await upsertPlanTrabajoArtifact({
+  const planArtifactId = await upsertPlanTrabajoArtifact({
     empresaId,
     agenciaId,
     briefId: brief.id,
     periodo: brief.periodo,
     contenidoJson: contentJson,
+    modelUsed: getActiveTextModelLabel(),
+    promptVersion: "plan_trabajo_v1",
+  });
+
+  const planScores = buildPlanArtifactScores({
+    agenciaId,
+    empresaId,
+    artifactId: planArtifactId,
+    content: contentJson,
+    modelUsed: getActiveTextModelLabel(),
+    promptVersion: "plan_trabajo_v1",
+  });
+  const planScoreMap = Object.fromEntries(
+    planScores
+      .filter((row) => row.entity_level === "global")
+      .map((row) => [row.score_type, row.score_value]),
+  ) as Partial<Record<"confidence" | "data_quality" | "risk" | "priority", number>>;
+  const planWorkflow = buildPlanWorkflow({
+    content: contentJson,
+    status: "plan",
+    scores: planScoreMap,
+    previousWorkflow: null,
+  });
+  contentJson = attachWorkflow(contentJson, planWorkflow);
+  await supabase
+    .from("rag_artifacts")
+    .update({
+      content_json: contentJson,
+      status: planWorkflow.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", planArtifactId);
+  await replaceArtifactScores({
+    supabase,
+    artifactId: planArtifactId,
+    rows: planScores,
   });
 
   revalidateEmpresaRoutes(empresaId);
@@ -2265,14 +2886,19 @@ export async function generateCalendarioDraft(formData: FormData) {
     },
   });
 
-  const generatedCalendario = await ollamaChat({
+  const empresaMetadataContext = JSON.stringify(empresaMetadata, null, 2).slice(0, 10000);
+
+  const generatedCalendario = await aiChat({
     systemPrompt:
-      "Eres content planner senior. Respondes SOLO JSON valido sin markdown ni texto adicional.",
+      "Eres content planner senior y director creativo de performance. Respondes SOLO JSON valido sin markdown ni texto adicional.",
     userPrompt: [
       `Genera un calendario editorial mensual para el periodo ${periodo}.`,
       "",
       "Contexto empresa:",
       JSON.stringify(empresa, null, 2),
+      "",
+      "METADATA_JSON de empresa:",
+      empresaMetadataContext || "{}",
       "",
       "Plan de trabajo base:",
       JSON.stringify(planRoot, null, 2),
@@ -2282,9 +2908,19 @@ export async function generateCalendarioDraft(formData: FormData) {
       "Reglas estrictas:",
       "1) Devuelve SOLO JSON con la estructura exacta indicada.",
       "2) Usa fechas reales YYYY-MM-DD dentro del mes del periodo.",
+      "2.1) NUNCA programes piezas en domingo. Todas las fechas generadas por IA deben caer entre lunes y sabado.",
       "3) Mantén coherencia con plan_trabajo, especialmente pilares, ideas sugeridas, mensajes destacados y productos/servicios.",
       "4) calendario.items debe contener todos los eventos editables.",
       "5) No agregues claves fuera de la estructura.",
+      "6) Cada item debe sentirse como una pieza distinta, no como una plantilla reciclada con otro titulo.",
+      "7) Si hay formatos de video, reparte los items entre distintos estilos narrativos. No repitas siempre talking head o promo directa. Alterna tutorial, demo, mito vs realidad, FAQ, lista rapida, caso breve, error comun, comparativa, POV, behind the scenes, recap, objection handling y storytelling.",
+      "8) Los videos deben variar tambien en promesa y energia: algunos educan, otros confrontan, otros muestran prueba, otros convierten.",
+      "9) Si hay multiples piezas del mismo canal o formato, diversifica angulo, CTA, pilar y buyer persona.",
+      "10) Evita temas vacios o hiper genericos. Cada item debe traer una hipotesis editorial concreta.",
+      "11) Usa metadata_json para respetar limites operativos, frecuencias, productos y prioridades cuando existan.",
+      "12) Si el formato es video, reel o pieza audiovisual, propon variedades reales: demo, tutorial, POV, entrevista corta, comparativa, mito vs realidad, checklist, secuencia problema-solucion, fragmento de webinar, testimonio o respuesta a objecion.",
+      "13) No llenes el calendario con la misma idea reformulada. Cambia enfoque, audiencia, friccion, etapa del funnel y CTA.",
+      "14) titulo_base, tema y subtema deben ser especificos y producir una pieza que un equipo creativo pueda entender de inmediato.",
       "",
       "Estructura exacta requerida:",
       JSON.stringify(defaultCalendario),
@@ -2295,18 +2931,60 @@ export async function generateCalendarioDraft(formData: FormData) {
   let contentJson: Record<string, unknown> = defaultCalendario as unknown as Record<string, unknown>;
   try {
     const parsed = JSON.parse(generatedCalendario) as unknown;
-    contentJson = normalizeCalendarioContent(parsed, defaultCalendario);
+    contentJson = clearCalendarioAssetBundles(
+      forceGeneratedCalendarOffSundays(parsed),
+      defaultCalendario,
+    );
   } catch {
-    contentJson = normalizeCalendarioContent(defaultCalendario, defaultCalendario);
+    contentJson = clearCalendarioAssetBundles(
+      forceGeneratedCalendarOffSundays(defaultCalendario),
+      defaultCalendario,
+    );
   }
 
-  await upsertCalendarioArtifact({
+  const calendarioArtifactId = await upsertCalendarioArtifact({
     empresaId,
     agenciaId,
     planArtifactId: plan.id,
     periodo,
     contenidoJson: contentJson,
     alcanceCalendario,
+    modelUsed: getActiveTextModelLabel(),
+    promptVersion: "calendario_v1",
+  });
+
+  const calendarioScores = buildCalendarioArtifactScores({
+    agenciaId,
+    empresaId,
+    artifactId: calendarioArtifactId,
+    content: contentJson,
+    modelUsed: getActiveTextModelLabel(),
+    promptVersion: "calendario_v1",
+  });
+  const calendarioScoreMap = Object.fromEntries(
+    calendarioScores
+      .filter((row) => row.entity_level === "global")
+      .map((row) => [row.score_type, row.score_value]),
+  ) as Partial<Record<"confidence" | "data_quality" | "risk" | "priority", number>>;
+  const calendarioWorkflow = buildCalendarioWorkflow({
+    content: contentJson,
+    status: "plan",
+    scores: calendarioScoreMap,
+    previousWorkflow: null,
+  });
+  contentJson = attachWorkflow(contentJson, calendarioWorkflow);
+  await supabase
+    .from("rag_artifacts")
+    .update({
+      content_json: contentJson,
+      status: calendarioWorkflow.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", calendarioArtifactId);
+  await replaceArtifactScores({
+    supabase,
+    artifactId: calendarioArtifactId,
+    rows: calendarioScores,
   });
 
   revalidateEmpresaRoutes(empresaId);

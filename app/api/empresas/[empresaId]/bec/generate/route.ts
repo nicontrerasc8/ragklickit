@@ -4,10 +4,11 @@ import {
   buildPromptBEC,
   CompanyForm,
   DEFAULT_COMPANY,
+  deriveMonthlyDeliverablesFromMetadata,
   loadBECState,
   mapAnswerToBec,
 } from "@/lib/bec/schema";
-import { ollamaChat } from "@/lib/ollama/client";
+import { aiChat } from "@/lib/ollama/client";
 import { createClient } from "@/lib/supabase/server";
 
 type Params = {
@@ -117,7 +118,9 @@ export async function POST(request: Request, { params }: Params) {
     agencyDocContext || "Sin documentos de agencia",
   ].join("\n");
 
-  const prompt = buildPromptBEC(company, docContext);
+  const metadataContext = JSON.stringify(metadata, null, 2).slice(0, 8000);
+  const monthlyDeliverables = deriveMonthlyDeliverablesFromMetadata(metadata);
+  const prompt = buildPromptBEC(company, docContext, metadataContext, monthlyDeliverables);
   const systemPrompt = [
     "Eres estratega senior de marketing para agencias. Responde siguiendo exactamente el formato solicitado.",
     becPrompt?.prompt_text?.trim()
@@ -125,7 +128,7 @@ export async function POST(request: Request, { params }: Params) {
       : "No hay prompt BEC personalizado de agencia.",
   ].join("\n\n");
 
-  const answer = await ollamaChat({
+  const answer = await aiChat({
     systemPrompt,
     userPrompt: prompt,
     temperature: 0.25,
@@ -133,6 +136,10 @@ export async function POST(request: Request, { params }: Params) {
 
   const current = loadBECState(body.bec);
   const generated = mapAnswerToBec(answer, current);
+
+  if (monthlyDeliverables) {
+    generated.fields["Entregables Mensuales"] = monthlyDeliverables;
+  }
 
   return NextResponse.json({
     bec: generated,

@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { checkOllamaConnection, getOllamaConfig } from "@/lib/ollama/client";
+import { checkAIConnection, getAIConfig } from "@/lib/ollama/client";
 
 export async function GET() {
   try {
-    const models = await checkOllamaConnection();
-    const config = getOllamaConfig();
+    const models = await checkAIConnection();
+    const config = getAIConfig();
     return NextResponse.json({
       ok: true,
+      provider: config.provider,
       baseUrl: config.baseUrl,
       chatModel: config.chatModel,
       embedModel: config.embedModel,

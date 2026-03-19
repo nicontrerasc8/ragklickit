@@ -7,6 +7,32 @@
  The fastest way to build apps with Next.js and Supabase
 </p>
 
+## AI configuration
+
+This project now resolves the text-generation provider automatically:
+
+- `production` defaults to `OpenAI`
+- local development defaults to `Ollama`
+- `AI_PROVIDER` can override either environment with `openai` or `ollama`
+
+For production, set at least these variables:
+
+```env
+AI_PROVIDER=openai
+OPENAI_API_KEY=...
+OPENAI_CHAT_MODEL=gpt-4.1-mini
+OPENAI_IMAGE_MODEL=gpt-image-1
+```
+
+Optional variables:
+
+```env
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_EMBED_MODEL=text-embedding-3-small
+```
+
+Use [.env.example](./.env.example) as the reference template.
+
 <p align="center">
   <a href="#features"><strong>Features</strong></a> ·
   <a href="#demo"><strong>Demo</strong></a> ·

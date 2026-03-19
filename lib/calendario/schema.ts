@@ -31,11 +31,18 @@ export type CalendarioGeneratedImage = {
 
 export type CalendarioItemAssetBundle = {
   generated_at: string;
+  content_kind: "social" | "carousel" | "video" | "blog" | "email";
   headline: string;
   caption: string;
   short_copy: string;
   blog_title: string;
   blog_body_markdown: string;
+  email_subject: string;
+  email_preheader: string;
+  email_body_markdown: string;
+  video_hook: string;
+  video_script: string;
+  carousel_slides: string[];
   cta: string;
   hashtags: string[];
   visual_direction: string;
@@ -109,6 +116,48 @@ function normalizeDate(value: unknown, fallback = "") {
   return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : fallback;
 }
 
+function parsePeriodo(periodo: string) {
+  const match = periodo.match(/^(\d{4})-(\d{2})/);
+  if (!match) return null;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return null;
+  }
+  return { year, month };
+}
+
+function formatYmd(year: number, month: number, day: number) {
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function isSunday(year: number, month: number, day: number) {
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
+}
+
+function weekFromResolvedDate(date: string) {
+  const day = Number.parseInt(date.slice(8, 10), 10);
+  if (day >= 22) return 4;
+  if (day >= 15) return 3;
+  if (day >= 8) return 2;
+  return 1;
+}
+
+function normalizeExplicitDateInPeriodo(date: string, periodo: string) {
+  const periodoParts = parsePeriodo(periodo);
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!periodoParts || !match) return date;
+
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  if (year !== periodoParts.year || month !== periodoParts.month) return "";
+
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > lastDay) return "";
+  return formatYmd(year, month, day);
+}
+
 function normalizeAlcance(value: unknown) {
   if (!value || typeof value !== "object") return {} as Record<string, number>;
   const out: Record<string, number> = {};
@@ -136,11 +185,24 @@ function normalizeAssetBundle(value: unknown): CalendarioItemAssetBundle | null 
 
   return {
     generated_at: asString(row.generated_at, ""),
+    content_kind:
+      asString(row.content_kind, "social") === "carousel" ||
+      asString(row.content_kind, "social") === "video" ||
+      asString(row.content_kind, "social") === "blog" ||
+      asString(row.content_kind, "social") === "email"
+        ? (asString(row.content_kind, "social") as CalendarioItemAssetBundle["content_kind"])
+        : "social",
     headline: asString(row.headline, ""),
     caption: asString(row.caption, ""),
     short_copy: asString(row.short_copy, ""),
     blog_title: asString(row.blog_title, ""),
     blog_body_markdown: asString(row.blog_body_markdown, ""),
+    email_subject: asString(row.email_subject, ""),
+    email_preheader: asString(row.email_preheader, ""),
+    email_body_markdown: asString(row.email_body_markdown, ""),
+    video_hook: asString(row.video_hook, ""),
+    video_script: asString(row.video_script, ""),
+    carousel_slides: asStringArray(row.carousel_slides),
     cta: asString(row.cta, ""),
     hashtags: asStringArray(row.hashtags),
     visual_direction: asString(row.visual_direction, ""),
@@ -151,6 +213,24 @@ function normalizeAssetBundle(value: unknown): CalendarioItemAssetBundle | null 
   };
 }
 
+export function clearCalendarioAssetBundles(input: unknown, fallback?: CalendarioContent): CalendarioContent {
+  const normalized = normalizeCalendarioContent(input, fallback);
+
+  return normalizeCalendarioContent(
+    {
+      ...normalized,
+      calendario: {
+        ...normalized.calendario,
+        items: normalized.calendario.items.map((item) => ({
+          ...item,
+          asset_bundle: null,
+        })),
+      },
+    },
+    fallback ?? normalized,
+  );
+}
+
 function rangeForWeek(week: number, lastDay: number): [number, number] {
   if (week === 2) return [8, Math.min(14, lastDay)];
   if (week === 3) return [15, Math.min(21, lastDay)];
@@ -159,32 +239,36 @@ function rangeForWeek(week: number, lastDay: number): [number, number] {
 }
 
 function resolveItemDate(item: Partial<CalendarioItem>, periodo: string) {
-  const explicit = normalizeDate(item.fecha, "");
+  const explicit = normalizeExplicitDateInPeriodo(normalizeDate(item.fecha, ""), periodo);
   if (explicit) return explicit;
 
-  const match = periodo.match(/^(\d{4})-(\d{2})/);
-  if (!match) return "";
-  const year = Number.parseInt(match[1], 10);
-  const month = Number.parseInt(match[2], 10);
-  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
-    return "";
-  }
+  const periodoParts = parsePeriodo(periodo);
+  if (!periodoParts) return "";
+  const { year, month } = periodoParts;
 
   const week = normalizeWeek(item.semana);
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const [start, end] = rangeForWeek(week, lastDay);
-  const span = Math.max(1, end - start + 1);
   const order = Math.max(1, toInt(item.orden_semana, 1));
-  const day = Math.min(end, start + ((order - 1) % span));
-  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const allowedDays: number[] = [];
+  for (let day = start; day <= end; day += 1) {
+    if (!isSunday(year, month, day)) allowedDays.push(day);
+  }
+  const fallbackDays =
+    allowedDays.length > 0
+      ? allowedDays
+      : Array.from({ length: Math.max(1, end - start + 1) }, (_, idx) => start + idx);
+  const day = fallbackDays[Math.min(fallbackDays.length - 1, order - 1)];
+  return formatYmd(year, month, day);
 }
 
 function normalizeItem(value: unknown, index: number, periodo: string): CalendarioItem {
   const row = asObj(value);
   const restricciones = asObj(row.restricciones_aplicadas);
-  const semana = normalizeWeek(row.semana);
   const orden = Math.max(1, toInt(row.orden_semana, 1));
   const canal = asString(row.canal, "Instagram") || "Instagram";
+  const resolvedDate = resolveItemDate(row as Partial<CalendarioItem>, periodo);
+  const semana = resolvedDate ? weekFromResolvedDate(resolvedDate) : normalizeWeek(row.semana);
 
   const item: CalendarioItem = {
     id: asString(row.id, `${canal}-${semana}-${orden || index + 1}`),
@@ -210,7 +294,7 @@ function normalizeItem(value: unknown, index: number, periodo: string): Calendar
     asset_bundle: normalizeAssetBundle(row.asset_bundle),
   };
 
-  item.fecha = resolveItemDate(item, periodo);
+  item.fecha = resolvedDate;
   return item;
 }
 
