@@ -26,6 +26,7 @@ export type CalendarioGeneratedImage = {
   id: string;
   path: string;
   prompt: string;
+  
   alt: string;
 };
 
