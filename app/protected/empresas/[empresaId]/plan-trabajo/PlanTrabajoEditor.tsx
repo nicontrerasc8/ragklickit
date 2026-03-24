@@ -71,6 +71,54 @@ function ideasToLines(plan: PlanTrabajo) {
     .join("\n");
 }
 
+function buildSuggestedContentFallback(plan: PlanTrabajo) {
+  return plan.cantidad_contenidos
+    .filter((item) => item.red.trim().length > 0 && item.cantidad > 0)
+    .flatMap((item) => {
+      const formatoBase = item.formatos[0]?.trim() || "contenido";
+      return [
+        `${item.red} | Angulo educativo aterrizado al producto o servicio prioritario del mes`,
+        `${item.red} | Objecion frecuente del cliente convertida en pieza de ${formatoBase}`,
+        `${item.red} | Caso, evidencia o prueba comercial con promesa clara`,
+      ];
+    })
+    .join("\n");
+}
+
+function buildImportantDatesFallback(plan: PlanTrabajo) {
+  const periodStart = (plan.periodo.inicio || "").trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(periodStart);
+
+  if (!match) {
+    return "";
+  }
+
+  const [, year, month] = match;
+  const monthNum = Number.parseInt(month, 10);
+  const monthLabels = [
+    "",
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+  ];
+  const monthLabel = monthLabels[monthNum] ?? month;
+
+  return [
+    `Inicio de planificacion mensual - 01/${month}/${year}`,
+    `Revision y aprobacion interna de piezas - primera semana de ${monthLabel}`,
+    `Cierre operativo y consolidacion de aprendizajes - ultima semana de ${monthLabel}`,
+  ].join("\n");
+}
+
 function linesToIdeas(text: string) {
   const grouped = new Map<string, string[]>();
 
@@ -402,7 +450,7 @@ export default function PlanTrabajoEditor(props: Props) {
         <AreaField
           label="Ideas por canal"
           rows={12}
-          value={ideasToLines(plan)}
+          value={ideasToLines(plan) || buildSuggestedContentFallback(plan)}
           onChange={(value) =>
             setPlan((current) => ({
               ...current,
@@ -447,7 +495,7 @@ export default function PlanTrabajoEditor(props: Props) {
         <AreaField
           label="Fechas"
           rows={4}
-          value={listToLines(plan.fechas_importantes)}
+          value={listToLines(plan.fechas_importantes) || buildImportantDatesFallback(plan)}
           onChange={(value) =>
             setPlan((current) => ({
               ...current,

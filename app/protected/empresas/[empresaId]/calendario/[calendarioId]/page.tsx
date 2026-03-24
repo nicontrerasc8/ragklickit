@@ -284,41 +284,7 @@ export default async function CalendarioDetailPage({ params }: PageProps) {
 
           {/* ── EDITOR AREA ─────────────────────────────────────────── */}
           <div className="px-6 pt-6 sm:px-10 xl:px-16">
-            <WorkflowPanel
-              title="Workflow del calendario"
-              workflow={workflow}
-              actions={
-                <>
-                  <form action={updateArtifactApproval}>
-                    <input type="hidden" name="empresa_id" value={empresaId} />
-                    <input type="hidden" name="artifact_id" value={calendario.id} />
-                    <input type="hidden" name="artifact_type" value="calendario" />
-                    <input type="hidden" name="approval_action" value="approve" />
-                    <button className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-100 transition-colors hover:bg-emerald-400/20">
-                      Aprobar calendario
-                    </button>
-                  </form>
-                  <form action={updateArtifactApproval}>
-                    <input type="hidden" name="empresa_id" value={empresaId} />
-                    <input type="hidden" name="artifact_id" value={calendario.id} />
-                    <input type="hidden" name="artifact_type" value="calendario" />
-                    <input type="hidden" name="approval_action" value="request_changes" />
-                    <button className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs font-medium text-amber-100 transition-colors hover:bg-amber-400/20">
-                      Pedir cambios
-                    </button>
-                  </form>
-                  <form action={updateArtifactApproval}>
-                    <input type="hidden" name="empresa_id" value={empresaId} />
-                    <input type="hidden" name="artifact_id" value={calendario.id} />
-                    <input type="hidden" name="artifact_type" value="calendario" />
-                    <input type="hidden" name="approval_action" value="reopen" />
-                    <button className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-white/70 transition-colors hover:text-white">
-                      Reabrir
-                    </button>
-                  </form>
-                </>
-              }
-            />
+     
           </div>
 
           <section className="relative flex-1 px-4 py-8 sm:px-6 xl:px-8">

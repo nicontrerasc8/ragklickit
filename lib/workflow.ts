@@ -73,6 +73,33 @@ function addHours(dateIso: string, hours: number) {
   return date.toISOString();
 }
 
+function asObj(value: unknown) {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function normalizeCountMap(value: unknown) {
+  if (!value || typeof value !== "object") return {} as Record<string, number>;
+  const out: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const name = String(key ?? "").trim();
+    const count =
+      typeof raw === "number"
+        ? raw
+        : Number.parseInt(String(raw ?? "").trim(), 10);
+    if (!name || !Number.isFinite(count) || count <= 0) continue;
+    out[name] = Math.trunc(count);
+  }
+  return out;
+}
+
+function normalizeComparableText(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 function buildAlert(input: {
   type: string;
   severity: WorkflowSeverity;
@@ -590,6 +617,7 @@ export function buildCalendarioWorkflow(params: {
   content: unknown;
   status: string;
   scores: Partial<Record<"confidence" | "data_quality" | "risk" | "priority", number>>;
+  metadata?: unknown;
   previousWorkflow?: unknown;
   updatedAt?: string | null;
 }) {
@@ -598,11 +626,15 @@ export function buildCalendarioWorkflow(params: {
     root.calendario && typeof root.calendario === "object"
       ? (root.calendario as Record<string, unknown>)
       : root;
+  const metadata = asObj(params.metadata);
   const items = Array.isArray(calendario.items) ? (calendario.items as Array<Record<string, unknown>>) : [];
   const alcance =
     root.alcance_calendario && typeof root.alcance_calendario === "object"
       ? (root.alcance_calendario as Record<string, number>)
       : {};
+  const metadataAlcance = normalizeCountMap(metadata.alcance_calendario);
+  const metadataMarca = String(metadata.marca ?? "").trim();
+  const metadataPais = String(metadata.pais ?? "").trim();
 
   const confidence = clamp(params.scores.confidence ?? 0.5);
   const dataQuality = clamp(params.scores.data_quality ?? 0.5);
@@ -655,6 +687,11 @@ export function buildCalendarioWorkflow(params: {
     })
     .map(([channel]) => channel);
 
+  const channelsOutsideMetadata =
+    Object.keys(metadataAlcance).length > 0
+      ? Object.keys(countsByChannel).filter((channel) => typeof metadataAlcance[channel] !== "number")
+      : [];
+
   if (channelsOverScope.length > 0) {
     alerts.push(
       buildAlert({
@@ -667,6 +704,75 @@ export function buildCalendarioWorkflow(params: {
       }),
     );
     blockers.push("El calendario excede el alcance operativo definido.");
+  }
+
+  if (channelsOutsideMetadata.length > 0) {
+    alerts.push(
+      buildAlert({
+        type: "metadata_scope",
+        severity: "high",
+        title: "Calendario fuera de metadata_json",
+        detail: `Hay canales no declarados en metadata_json: ${channelsOutsideMetadata.join(", ")}.`,
+        actionRequired: "Eliminar esos canales o corregir metadata_json antes de operar.",
+        blocking: true,
+      }),
+    );
+    blockers.push("El calendario usa canales fuera del alcance declarado en metadata_json.");
+  }
+
+  if (Object.keys(metadataAlcance).length > 0) {
+    const scopeDifferences = Array.from(new Set([...Object.keys(metadataAlcance), ...Object.keys(alcance)]))
+      .filter((channel) => (metadataAlcance[channel] ?? 0) !== (alcance[channel] ?? 0));
+
+    if (scopeDifferences.length > 0) {
+      alerts.push(
+        buildAlert({
+          type: "metadata_alignment",
+          severity: "high",
+          title: "Alcance desalineado con metadata_json",
+          detail: `El alcance operativo del calendario no coincide con metadata_json en: ${scopeDifferences.join(", ")}.`,
+          actionRequired: "Alinear el alcance del calendario con metadata_json antes de operar.",
+          blocking: true,
+        }),
+      );
+      blockers.push("El alcance del calendario no coincide con metadata_json.");
+    }
+  }
+
+  if (
+    metadataMarca &&
+    normalizeComparableText(calendario.marca) &&
+    normalizeComparableText(calendario.marca) !== normalizeComparableText(metadataMarca)
+  ) {
+    alerts.push(
+      buildAlert({
+        type: "metadata_brand",
+        severity: "high",
+        title: "Marca desalineada con metadata_json",
+        detail: `La marca del calendario (${String(calendario.marca ?? "").trim()}) no coincide con metadata_json (${metadataMarca}).`,
+        actionRequired: "Corregir la marca del calendario o actualizar metadata_json.",
+        blocking: true,
+      }),
+    );
+    blockers.push("La marca del calendario no coincide con metadata_json.");
+  }
+
+  if (
+    metadataPais &&
+    normalizeComparableText(calendario.pais) &&
+    normalizeComparableText(calendario.pais) !== normalizeComparableText(metadataPais)
+  ) {
+    alerts.push(
+      buildAlert({
+        type: "metadata_country",
+        severity: "high",
+        title: "Pais desalineado con metadata_json",
+        detail: `El pais del calendario (${String(calendario.pais ?? "").trim()}) no coincide con metadata_json (${metadataPais}).`,
+        actionRequired: "Corregir el pais del calendario o actualizar metadata_json.",
+        blocking: true,
+      }),
+    );
+    blockers.push("El pais del calendario no coincide con metadata_json.");
   }
 
   if (risk >= 0.7) {
@@ -704,8 +810,10 @@ export function buildCalendarioWorkflow(params: {
   }
 
   const previous = parseWorkflowMeta(params.previousWorkflow);
-  const blocked = blockers.length > 0;
-  const requiresReview = blocked || confidence < 0.75 || dataQuality < 0.75 || risk >= 0.4;
+  const isApproved = params.status === "aprobado" || params.status === "approved";
+  const hasOperationalAlerts = blockers.length > 0;
+  const blocked = false;
+  const requiresReview = !isApproved && (hasOperationalAlerts || confidence < 0.75 || dataQuality < 0.75 || risk >= 0.4);
   const degradation = inferDegradation({
     confidence,
     dataQuality,
@@ -718,7 +826,7 @@ export function buildCalendarioWorkflow(params: {
     object_type: "calendario",
     status: deriveStatus({
       blocked,
-      approved: params.status === "aprobado",
+      approved: isApproved,
       exception: params.status === "exception",
       requiresReview,
     }),
@@ -729,29 +837,31 @@ export function buildCalendarioWorkflow(params: {
     }),
     degradation_level: degradation.level,
     degradation_label: degradation.label,
-    requires_human_review: true,
+    requires_human_review: !isApproved,
     approval: {
       required: true,
       state:
-        params.status === "aprobado"
+        isApproved
           ? "approved"
-          : blocked
-            ? "blocked"
-            : params.status === "revision"
-              ? "changes_requested"
-              : "pending",
-      approved_by: params.status === "aprobado" ? previous.approval?.approved_by ?? null : null,
-      approved_at: params.status === "aprobado" ? previous.approval?.approved_at ?? null : null,
-      note: params.status === "aprobado" ? previous.approval?.note ?? null : null,
+          : params.status === "revision"
+            ? "changes_requested"
+            : "pending",
+      approved_by: isApproved ? previous.approval?.approved_by ?? null : null,
+      approved_at: isApproved ? previous.approval?.approved_at ?? null : null,
+      note: isApproved ? previous.approval?.note ?? null : null,
     },
     alerts,
     blockers,
     assumptions,
     summary:
-      blocked
-        ? "El calendario esta bloqueado hasta resolver capacidad, riesgo o piezas incompletas."
+      isApproved
+        ? alerts.length > 0
+          ? "El calendario fue aprobado con alertas operativas abiertas."
+          : "El calendario esta aprobado para produccion."
         : requiresReview
-          ? "El calendario requiere validacion humana antes de producir."
+          ? hasOperationalAlerts
+            ? "El calendario requiere validacion humana y ajustes operativos antes de producir."
+            : "El calendario requiere validacion humana antes de producir."
           : "El calendario esta listo para aprobacion final.",
     score_snapshot: {
       confidence,
@@ -770,12 +880,24 @@ export function applyApprovalDecision(params: {
   action: "approve" | "reopen" | "request_changes";
 }) {
   const note = params.note?.trim() || null;
+  const canBeBlocked = params.workflow.object_type !== "calendario";
+  const hasBlockingAlerts = canBeBlocked && params.workflow.alerts.some((item) => item.blocking);
+  const calendarHasOperationalAlerts =
+    params.workflow.object_type === "calendario" &&
+    (params.workflow.alerts.length > 0 || params.workflow.blockers.length > 0);
+
   if (params.action === "approve") {
     return {
       ...params.workflow,
       status: "approved",
       decision: params.workflow.alerts.some((item) => item.blocking) ? "approved_with_warnings" : "approved",
       requires_human_review: false,
+      summary:
+        params.workflow.object_type === "calendario"
+          ? calendarHasOperationalAlerts
+            ? "El calendario fue aprobado con alertas operativas abiertas."
+            : "El calendario esta aprobado para produccion."
+          : params.workflow.summary,
       approval: {
         ...params.workflow.approval,
         required: true,
@@ -794,6 +916,12 @@ export function applyApprovalDecision(params: {
       status: "needs_review",
       decision: "needs_human_review",
       requires_human_review: true,
+      summary:
+        params.workflow.object_type === "calendario"
+          ? calendarHasOperationalAlerts
+            ? "El calendario requiere ajustes operativos antes de una nueva revision."
+            : "El calendario quedo abierto para cambios y nueva revision."
+          : params.workflow.summary,
       approval: {
         ...params.workflow.approval,
         required: true,
@@ -808,13 +936,19 @@ export function applyApprovalDecision(params: {
 
   return {
     ...params.workflow,
-    status: params.workflow.alerts.some((item) => item.blocking) ? "blocked" : "draft",
-    decision: params.workflow.alerts.some((item) => item.blocking) ? "blocked" : "needs_human_review",
+    status: hasBlockingAlerts ? "blocked" : "draft",
+    decision: hasBlockingAlerts ? "blocked" : "needs_human_review",
     requires_human_review: true,
+    summary:
+      params.workflow.object_type === "calendario"
+        ? calendarHasOperationalAlerts
+          ? "El calendario quedo reabierto con alertas operativas por revisar."
+          : "El calendario esta nuevamente en revision operativa."
+        : params.workflow.summary,
     approval: {
       ...params.workflow.approval,
       required: true,
-      state: params.workflow.alerts.some((item) => item.blocking) ? "blocked" : "pending",
+      state: hasBlockingAlerts ? "blocked" : "pending",
       approved_by: null,
       approved_at: null,
       note,

@@ -1,10 +1,9 @@
 import { EnvVarWarning } from "@/components/env-var-warning";
 import { AuthButton } from "@/components/auth-button";
-import { ThemeSwitcher } from "@/components/theme-switcher";
 import { hasEnvVars } from "@/lib/utils";
 import Link from "next/link";
 import { Suspense } from "react";
-import { ArrowUpRight, Building2, LayoutGrid } from "lucide-react";
+import { Building2, LayoutGrid } from "lucide-react";
 
 const navItems = [
   { href: "/protected", label: "Dashboard", icon: LayoutGrid },
@@ -63,7 +62,6 @@ export default function ProtectedLayout({
                 <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_14px_rgba(74,222,128,0.8)]" />
                 Workspace activo
               </div>
-              <ThemeSwitcher />
               {!hasEnvVars ? (
                 <EnvVarWarning />
               ) : (
@@ -77,23 +75,7 @@ export default function ProtectedLayout({
 
         <div className="flex-1 px-4 py-6 sm:px-6 xl:px-10">
           <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/8 bg-white/[0.03] px-5 py-4 shadow-[var(--shadow-card)]">
-              <div className="space-y-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-400/70">
-                  Panel de trabajo
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Gestiona estrategia, briefs, BEC, planes y calendarios desde un solo workspace.
-                </p>
-              </div>
-              <Link
-                href="/protected/empresas"
-                className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-4 py-2 text-xs font-semibold text-sky-100 transition hover:bg-sky-400/15"
-              >
-                Ir a empresas
-                <ArrowUpRight size={14} />
-              </Link>
-            </div>
+          
 
             <div className="w-full">{children}</div>
           </div>

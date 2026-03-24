@@ -73,6 +73,27 @@ export type BriefFormState = {
   strategicChanges: "" | "si" | "no";
 };
 
+function normalizeBriefKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function findMatchingKey<T extends string>(target: T, candidates: Record<string, unknown>) {
+  const normalizedTarget = normalizeBriefKey(target);
+
+  for (const key of Object.keys(candidates)) {
+    if (normalizeBriefKey(key) === normalizedTarget) {
+      return key;
+    }
+  }
+
+  return null;
+}
+
 export function makeDefaultBriefForm(): BriefFormState {
   const objectives = {} as Record<BriefObjectiveGroupId, Record<string, boolean>>;
   for (const group of BRIEF_OBJECTIVE_GROUPS) {
@@ -102,33 +123,55 @@ export function loadBriefForm(input: unknown): BriefFormState {
 
   const value = input as {
     objectives?: Record<string, Record<string, boolean>>;
-    fields?: Record<string, string>;
+    fields?: Record<string, unknown>;
     strategicChanges?: string;
+    strategic_changes?: string;
+    cambios_estrategicos?: string;
   };
 
   const next = makeDefaultBriefForm();
+  const rawRecord = input as Record<string, unknown>;
+  const rawObjectives =
+    value.objectives && typeof value.objectives === "object" ? value.objectives : undefined;
+  const rawFields =
+    value.fields && typeof value.fields === "object"
+      ? (value.fields as Record<string, unknown>)
+      : rawRecord;
 
-  if (value.objectives && typeof value.objectives === "object") {
+  if (rawObjectives) {
     for (const group of BRIEF_OBJECTIVE_GROUPS) {
-      const sourceGroup = value.objectives[group.id];
+      const sourceGroupKey =
+        findMatchingKey(group.id, rawObjectives) ??
+        findMatchingKey(group.title, rawObjectives) ??
+        findMatchingKey(group.rowLabel, rawObjectives);
+      const sourceGroup = sourceGroupKey ? rawObjectives[sourceGroupKey] : undefined;
       if (!sourceGroup || typeof sourceGroup !== "object") continue;
+      const sourceGroupRecord = sourceGroup as Record<string, unknown>;
+
       for (const option of group.options) {
-        next.objectives[group.id][option] = Boolean(sourceGroup[option]);
+        const optionKey = findMatchingKey(option, sourceGroupRecord);
+        if (optionKey) {
+          next.objectives[group.id][option] = Boolean(sourceGroupRecord[optionKey]);
+        }
       }
     }
   }
 
-  if (value.fields && typeof value.fields === "object") {
+  if (rawFields && typeof rawFields === "object") {
     for (const field of BRIEF_TEXT_FIELDS) {
-      const raw = value.fields[field];
+      const sourceKey = findMatchingKey(field, rawFields);
+      const raw = sourceKey ? rawFields[sourceKey] : undefined;
       if (typeof raw === "string") {
         next.fields[field] = raw;
       }
     }
   }
 
-  if (value.strategicChanges === "si" || value.strategicChanges === "no") {
-    next.strategicChanges = value.strategicChanges;
+  const strategicValue =
+    value.strategicChanges ?? value.strategic_changes ?? value.cambios_estrategicos ?? "";
+
+  if (strategicValue === "si" || strategicValue === "no") {
+    next.strategicChanges = strategicValue;
   }
 
   return next;

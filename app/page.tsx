@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { ArrowRight, BookOpenText, Building2, CalendarCheck2, Sparkles } from "lucide-react";
-import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 
@@ -50,7 +49,6 @@ export default function Home() {
             Ragklickit
           </Link>
           <div className="flex items-center gap-2">
-            <ThemeSwitcher />
             <Button asChild size="sm" variant="outline">
               <Link href="/auth/login">Ingresar</Link>
             </Button>

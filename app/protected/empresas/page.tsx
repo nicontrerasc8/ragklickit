@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { createEmpresa } from "@/app/protected/actions";
 import { createClient } from "@/lib/supabase/server";
+import DeleteEmpresaButton from "./DeleteEmpresaButton";
 
 const PAGE_STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -225,46 +226,54 @@ export default async function EmpresasPage() {
                   const grad = industryGradient(empresa.industria);
                   const ini  = initials(empresa.nombre);
                   return (
-                    <Link
+                    <div
                       key={empresa.id}
-                      href={`/protected/empresas/${empresa.id}`}
-                      className="empresa-card flex items-center gap-4 rounded-2xl px-5 py-4"
+                      className="empresa-card flex items-center gap-3 rounded-2xl px-3 py-3 sm:gap-4 sm:px-5 sm:py-4"
                       style={{
                         border: "1px solid rgba(255,255,255,0.07)",
                         background: "rgba(255,255,255,0.018)",
-                        textDecoration: "none",
-                        display: "flex",
                       }}
                     >
-                      {/* Avatar */}
-                      <div
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${grad} text-[13px] font-bold text-white shadow-lg`}
-                        style={{ opacity: 0.85 }}
+                      <Link
+                        href={`/protected/empresas/${empresa.id}`}
+                        className="flex min-w-0 flex-1 items-center gap-4"
+                        style={{ textDecoration: "none" }}
                       >
-                        {ini}
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-semibold text-white/85 truncate">
-                          {empresa.nombre}
-                        </p>
-                        <div className="mt-0.5 flex items-center gap-2">
-                          {empresa.industria ? (
-                            <span className="text-[11px] text-white/35 truncate">{empresa.industria}</span>
-                          ) : null}
-                          {empresa.industria && empresa.pais ? (
-                            <span className="text-[11px] text-white/20">·</span>
-                          ) : null}
-                          {empresa.pais ? (
-                            <span className="text-[11px] text-white/35">{empresa.pais}</span>
-                          ) : null}
+                        {/* Avatar */}
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${grad} text-[13px] font-bold text-white shadow-lg`}
+                          style={{ opacity: 0.85 }}
+                        >
+                          {ini}
                         </div>
-                      </div>
 
-                      {/* Arrow */}
-                      <span className="shrink-0 text-sm text-white/20">→</span>
-                    </Link>
+                        {/* Info */}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[14px] font-semibold text-white/85">
+                            {empresa.nombre}
+                          </p>
+                          <div className="mt-0.5 flex items-center gap-2">
+                            {empresa.industria ? (
+                              <span className="truncate text-[11px] text-white/35">{empresa.industria}</span>
+                            ) : null}
+                            {empresa.industria && empresa.pais ? (
+                              <span className="text-[11px] text-white/20">·</span>
+                            ) : null}
+                            {empresa.pais ? (
+                              <span className="text-[11px] text-white/35">{empresa.pais}</span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {/* Arrow */}
+                        <span className="shrink-0 text-sm text-white/20">→</span>
+                      </Link>
+
+                      <DeleteEmpresaButton
+                        empresaId={empresa.id}
+                        empresaNombre={empresa.nombre}
+                      />
+                    </div>
                   );
                 })}
               </div>

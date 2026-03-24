@@ -161,10 +161,11 @@ export default async function BriefDetailPage({ params }: PageProps) {
           key={`${brief.id}-${brief.version}`}
           empresaId={empresaId}
           initialPeriodo={initialPeriodo}
+          initialEstado={brief.estado}
           initialFormState={initialFormState}
         />
 
-        {evaluationRoot ? (
+        {/* {evaluationRoot ? (
           <section className="space-y-4">
             <div className="rounded-3xl border border-white/10 bg-white/[0.025] p-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -219,7 +220,7 @@ export default async function BriefDetailPage({ params }: PageProps) {
             </div>
             <WorkflowPanel title="Workflow del brief" workflow={workflow} />
           </section>
-        ) : null}
+        ) : null} */}
       </div>
     </div>
   );

@@ -741,6 +741,44 @@ function normalizeAlcanceMap(value: unknown) {
   return map;
 }
 
+function applyStrictCalendarioMetadata(
+  content: unknown,
+  params: {
+    empresaNombre: string;
+    empresaPais?: string | null;
+    metadata: Record<string, unknown>;
+  },
+) {
+  const metadata = params.metadata ?? {};
+  const strictAlcance = normalizeAlcanceMap(metadata.alcance_calendario);
+  const normalized = normalizeCalendarioContent(content);
+  const calendario =
+    normalized.calendario && typeof normalized.calendario === "object"
+      ? (normalized.calendario as Record<string, unknown>)
+      : {};
+
+  return normalizeCalendarioContent({
+    ...normalized,
+    alcance_calendario:
+      Object.keys(strictAlcance).length > 0 ? strictAlcance : normalized.alcance_calendario,
+    canales_prioritarios:
+      Object.keys(strictAlcance).length > 0 ? Object.keys(strictAlcance) : normalized.canales_prioritarios,
+    calendario: {
+      ...calendario,
+      cliente: params.empresaNombre || String(calendario.cliente ?? "").trim(),
+      marca:
+        String(metadata.marca ?? "").trim() ||
+        String(calendario.marca ?? "").trim() ||
+        params.empresaNombre,
+      pais:
+        String(metadata.pais ?? "").trim() ||
+        params.empresaPais ||
+        String(calendario.pais ?? "").trim() ||
+        "Peru",
+    },
+  });
+}
+
 function parseAlcanceCalendarioJson(raw: string) {
   const text = raw.trim();
   if (!text) return {} as Record<string, number>;
@@ -1290,6 +1328,58 @@ function buildCalendarFromPlanTrabajo(params: {
   };
 }
 
+function ensurePlanSuggestedContent(plan: Record<string, unknown>) {
+  const cantidadContenidos = Array.isArray(plan.cantidad_contenidos)
+    ? (plan.cantidad_contenidos as Record<string, unknown>[])
+    : [];
+  const currentSuggested = Array.isArray(plan.contenido_sugerido)
+    ? (plan.contenido_sugerido as Record<string, unknown>[])
+    : [];
+
+  const byChannel = new Map<string, string[]>();
+  for (const row of currentSuggested) {
+    const canal = typeof row.canal === "string" ? row.canal.trim() : "";
+    const ideas = Array.isArray(row.ideas)
+      ? (row.ideas as string[]).filter((item) => typeof item === "string" && item.trim())
+      : [];
+    if (!canal || ideas.length === 0) continue;
+    byChannel.set(canal, ideas);
+  }
+
+  const fallbackRows = cantidadContenidos
+    .map((row) => {
+      const canal = typeof row.red === "string" ? row.red.trim() : "";
+      const cantidadRaw =
+        typeof row.cantidad === "number"
+          ? row.cantidad
+          : Number.parseInt(String(row.cantidad ?? "0").trim(), 10);
+      const cantidad = Number.isFinite(cantidadRaw) ? Math.max(0, cantidadRaw) : 0;
+      const formatos = Array.isArray(row.formatos)
+        ? (row.formatos as string[]).filter((item) => typeof item === "string" && item.trim())
+        : [];
+
+      if (!canal || cantidad <= 0) return null;
+      if ((byChannel.get(canal) ?? []).length > 0) {
+        return { canal, ideas: byChannel.get(canal) ?? [] };
+      }
+
+      const formatoBase = formatos[0]?.trim() || "contenido";
+      const ideas = [
+        `${canal}: angulo educativo aplicado al servicio o producto prioritario del mes`,
+        `${canal}: objecion frecuente del cliente convertida en pieza de ${formatoBase}`,
+        `${canal}: caso, prueba o evidencia comercial con promesa clara`,
+      ].slice(0, Math.min(Math.max(cantidad, 3), 3));
+
+      return { canal, ideas };
+    })
+    .filter((row): row is { canal: string; ideas: string[] } => Boolean(row));
+
+  return {
+    ...plan,
+    contenido_sugerido: fallbackRows,
+  };
+}
+
 function calendarItemsToWeeks(
   items: Array<Record<string, unknown>>,
   periodo: string,
@@ -1370,6 +1460,137 @@ export async function createEmpresa(formData: FormData) {
 
   revalidatePath("/protected");
   revalidatePath("/protected/empresas");
+}
+
+export async function deleteEmpresa(formData: FormData) {
+  const { supabase, agenciaId } = await requireUserAgenciaContext();
+  const empresaId = String(formData.get("empresa_id") ?? "").trim();
+
+  if (!empresaId) {
+    return;
+  }
+
+  const { data: empresa, error: empresaLookupError } = await supabase
+    .from("empresa")
+    .select("id")
+    .eq("id", empresaId)
+    .eq("agencia_id", agenciaId)
+    .maybeSingle();
+
+  if (empresaLookupError) {
+    throw new Error(`No se pudo validar empresa: ${empresaLookupError.message}`);
+  }
+
+  if (!empresa) {
+    throw new Error("Empresa no encontrada o sin acceso.");
+  }
+
+  const { data: artifactRows, error: artifactLookupError } = await supabase
+    .from("rag_artifacts")
+    .select("id")
+    .eq("empresa_id", empresaId)
+    .eq("agencia_id", agenciaId);
+
+  if (artifactLookupError) {
+    throw new Error(`No se pudo consultar artifacts de la empresa: ${artifactLookupError.message}`);
+  }
+
+  const artifactIds = (artifactRows ?? []).map((row) => row.id);
+
+  const deleteSteps = [
+    async () => {
+      const { error } = await supabase
+        .from("app_user_empresa_access")
+        .delete()
+        .eq("empresa_id", empresaId);
+      if (error) throw new Error(`app_user_empresa_access: ${error.message}`);
+    },
+    async () => {
+      const { error } = await supabase
+        .from("rag_scores")
+        .delete()
+        .eq("empresa_id", empresaId)
+        .eq("agencia_id", agenciaId);
+      if (error) throw new Error(`rag_scores: ${error.message}`);
+    },
+    async () => {
+      const { error } = await supabase
+        .from("kb_chunks")
+        .delete()
+        .eq("empresa_id", empresaId);
+      if (error) throw new Error(`kb_chunks: ${error.message}`);
+    },
+    async () => {
+      if (artifactIds.length === 0) return;
+
+      const { error } = await supabase
+        .from("rag_runs")
+        .delete()
+        .in("artifact_id", artifactIds);
+      if (error) throw new Error(`rag_runs: ${error.message}`);
+    },
+    async () => {
+      const { error } = await supabase
+        .from("kb_documents")
+        .delete()
+        .eq("empresa_id", empresaId)
+        .eq("agencia_id", agenciaId);
+      if (error) throw new Error(`kb_documents: ${error.message}`);
+    },
+    async () => {
+      const { error } = await supabase
+        .from("empresa_file")
+        .delete()
+        .eq("empresa_id", empresaId)
+        .eq("agencia_id", agenciaId);
+      if (error) throw new Error(`empresa_file: ${error.message}`);
+    },
+    async () => {
+      const { error } = await supabase
+        .from("rag_artifacts")
+        .delete()
+        .eq("empresa_id", empresaId)
+        .eq("agencia_id", agenciaId);
+      if (error) throw new Error(`rag_artifacts: ${error.message}`);
+    },
+    async () => {
+      const { error } = await supabase
+        .from("brief")
+        .delete()
+        .eq("empresa_id", empresaId);
+      if (error) throw new Error(`brief: ${error.message}`);
+    },
+    async () => {
+      const { error } = await supabase
+        .from("bec")
+        .delete()
+        .eq("empresa_id", empresaId);
+      if (error) throw new Error(`bec: ${error.message}`);
+    },
+  ];
+
+  for (const step of deleteSteps) {
+    try {
+      await step();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Error desconocido";
+      throw new Error(`No se pudo eliminar contenido relacionado de la empresa. ${message}`);
+    }
+  }
+
+  const { error: deleteEmpresaError } = await supabase
+    .from("empresa")
+    .delete()
+    .eq("id", empresaId)
+    .eq("agencia_id", agenciaId);
+
+  if (deleteEmpresaError) {
+    throw new Error(`No se pudo eliminar empresa: ${deleteEmpresaError.message}`);
+  }
+
+  revalidatePath("/protected");
+  revalidatePath("/protected/empresas");
+  revalidateEmpresaRoutes(empresaId);
 }
 
 export async function updateEmpresa(formData: FormData) {
@@ -2111,22 +2332,44 @@ export async function updateCalendarioArtifact(formData: FormData) {
     throw new Error("El contenido del calendario debe ser JSON valido.");
   }
 
-  const { data: existing, error: existingError } = await supabase
-    .from("rag_artifacts")
-    .select("id, version, content_json, updated_at")
-    .eq("id", calendarioId)
-    .eq("artifact_type", "calendario")
-    .eq("empresa_id", empresaId)
-    .eq("agencia_id", agenciaId)
-    .maybeSingle();
+  const [{ data: existing, error: existingError }, { data: empresa, error: empresaError }] = await Promise.all([
+    supabase
+      .from("rag_artifacts")
+      .select("id, version, content_json, updated_at")
+      .eq("id", calendarioId)
+      .eq("artifact_type", "calendario")
+      .eq("empresa_id", empresaId)
+      .eq("agencia_id", agenciaId)
+      .maybeSingle(),
+    supabase
+      .from("empresa")
+      .select("id, nombre, pais, metadata_json")
+      .eq("id", empresaId)
+      .eq("agencia_id", agenciaId)
+      .maybeSingle(),
+  ]);
 
   if (existingError) {
     throw new Error(`No se pudo consultar calendario: ${existingError.message}`);
   }
 
-  if (!existing?.id) {
+  if (empresaError) {
+    throw new Error(`No se pudo consultar empresa: ${empresaError.message}`);
+  }
+
+  if (!existing?.id || !empresa) {
     throw new Error("Calendario no encontrado o sin acceso.");
   }
+
+  const empresaMetadata =
+    empresa.metadata_json && typeof empresa.metadata_json === "object"
+      ? (empresa.metadata_json as Record<string, unknown>)
+      : {};
+  contentJson = applyStrictCalendarioMetadata(contentJson, {
+    empresaNombre: empresa.nombre,
+    empresaPais: empresa.pais,
+    metadata: empresaMetadata,
+  }) as unknown as Record<string, unknown>;
 
   const calendarioScores = buildCalendarioArtifactScores({
     agenciaId,
@@ -2143,6 +2386,7 @@ export async function updateCalendarioArtifact(formData: FormData) {
     content: contentJson,
     status,
     scores: calendarioScoreMap,
+    metadata: empresaMetadata,
     previousWorkflow: existing.content_json,
     updatedAt: existing.updated_at,
   });
@@ -2730,6 +2974,13 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
     );
   }
 
+  if (contentJson.plan_trabajo && typeof contentJson.plan_trabajo === "object") {
+    contentJson = {
+      ...contentJson,
+      plan_trabajo: ensurePlanSuggestedContent(contentJson.plan_trabajo as Record<string, unknown>),
+    };
+  }
+
   const planArtifactId = await upsertPlanTrabajoArtifact({
     empresaId,
     agenciaId,
@@ -2818,7 +3069,7 @@ export async function generateCalendarioDraft(formData: FormData) {
       : {};
   const alcanceFromEmpresa = normalizeAlcanceMap(empresaMetadata.alcance_calendario);
   const alcanceCalendario =
-    Object.keys(alcanceFromForm).length > 0 ? alcanceFromForm : alcanceFromEmpresa;
+    Object.keys(alcanceFromEmpresa).length > 0 ? alcanceFromEmpresa : alcanceFromForm;
 
   const planContent =
     plan.content_json && typeof plan.content_json === "object"
@@ -2838,8 +3089,8 @@ export async function generateCalendarioDraft(formData: FormData) {
       ? (planContent.plan_trabajo as Record<string, unknown>)
       : ({
           cliente: empresa.nombre,
-          marca: empresa.nombre,
-          pais: empresa.pais ?? "Peru",
+          marca: String(empresaMetadata.marca ?? "").trim() || empresa.nombre,
+          pais: String(empresaMetadata.pais ?? "").trim() || (empresa.pais ?? "Peru"),
           version: String(periodo).slice(0, 7),
           productos_servicios_destacar: [],
           mensajes_destacados: [],
@@ -2917,7 +3168,7 @@ export async function generateCalendarioDraft(formData: FormData) {
       "8) Los videos deben variar tambien en promesa y energia: algunos educan, otros confrontan, otros muestran prueba, otros convierten.",
       "9) Si hay multiples piezas del mismo canal o formato, diversifica angulo, CTA, pilar y buyer persona.",
       "10) Evita temas vacios o hiper genericos. Cada item debe traer una hipotesis editorial concreta.",
-      "11) Usa metadata_json para respetar limites operativos, frecuencias, productos y prioridades cuando existan.",
+      "11) metadata_json es la fuente operativa de verdad. Si hay conflicto con el plan, el formulario o cualquier otra fuente, manda metadata_json.",
       "12) Si el formato es video, reel o pieza audiovisual, propon variedades reales: demo, tutorial, POV, entrevista corta, comparativa, mito vs realidad, checklist, secuencia problema-solucion, fragmento de webinar, testimonio o respuesta a objecion.",
       "13) No llenes el calendario con la misma idea reformulada. Cambia enfoque, audiencia, friccion, etapa del funnel y CTA.",
       "14) titulo_base, tema y subtema deben ser especificos y producir una pieza que un equipo creativo pueda entender de inmediato.",
@@ -2931,16 +3182,15 @@ export async function generateCalendarioDraft(formData: FormData) {
   let contentJson: Record<string, unknown> = defaultCalendario as unknown as Record<string, unknown>;
   try {
     const parsed = JSON.parse(generatedCalendario) as unknown;
-    contentJson = clearCalendarioAssetBundles(
-      forceGeneratedCalendarOffSundays(parsed),
-      defaultCalendario,
-    );
+    contentJson = clearCalendarioAssetBundles(forceGeneratedCalendarOffSundays(parsed), defaultCalendario);
   } catch {
-    contentJson = clearCalendarioAssetBundles(
-      forceGeneratedCalendarOffSundays(defaultCalendario),
-      defaultCalendario,
-    );
+    contentJson = clearCalendarioAssetBundles(forceGeneratedCalendarOffSundays(defaultCalendario), defaultCalendario);
   }
+  contentJson = applyStrictCalendarioMetadata(contentJson, {
+    empresaNombre: empresa.nombre,
+    empresaPais: empresa.pais,
+    metadata: empresaMetadata,
+  }) as unknown as Record<string, unknown>;
 
   const calendarioArtifactId = await upsertCalendarioArtifact({
     empresaId,
@@ -2970,6 +3220,7 @@ export async function generateCalendarioDraft(formData: FormData) {
     content: contentJson,
     status: "plan",
     scores: calendarioScoreMap,
+    metadata: empresaMetadata,
     previousWorkflow: null,
   });
   contentJson = attachWorkflow(contentJson, calendarioWorkflow);

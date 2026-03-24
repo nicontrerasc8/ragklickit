@@ -174,27 +174,8 @@ export default function EmpresaDashboard({ empresa, bec, docsCount, abaSummary }
             {initial}
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">{displayName}</h1>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              {empresa.industria && (
-                <span className="inline-block rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
-                  {empresa.industria}
-                </span>
-              )}
-              {empresa.pais && (
-                <span className="inline-block rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
-                  {empresa.pais}
-                </span>
-              )}
-              {bec && (
-                <span className="inline-block rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
-                  BEC v{bec.version}
-                </span>
-              )}
-              <span className="inline-block rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">
-                {docsCount} docs
-              </span>
-            </div>
+            <h1 className="text-4xl font-bold tracking-tight">{displayName}</h1>
+         
           </div>
         </div>
 
@@ -234,25 +215,7 @@ export default function EmpresaDashboard({ empresa, bec, docsCount, abaSummary }
         ))}
       </div>
 
-      <section className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold">ABA Overview</h2>
-            <p className="text-sm text-muted-foreground">
-              Estado maestro del flujo operativo: BEC, Brief, Plan y Calendario.
-            </p>
-          </div>
-          <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
-            4 etapas
-          </span>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <AbaStageCard item={abaSummary.bec} />
-          <AbaStageCard item={abaSummary.brief} />
-          <AbaStageCard item={abaSummary.plan} />
-          <AbaStageCard item={abaSummary.calendario} />
-        </div>
-      </section>
+      
 
       <dialog
         ref={dialogRef}

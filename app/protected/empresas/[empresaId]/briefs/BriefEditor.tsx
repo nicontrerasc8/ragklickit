@@ -17,6 +17,7 @@ import {
 type BriefEditorProps = {
   empresaId: string;
   initialPeriodo?: string;
+  initialEstado?: string;
   initialFormState: BriefFormState;
 };
 
@@ -223,10 +224,15 @@ function TextFieldCard({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function BriefEditor({ empresaId, initialPeriodo, initialFormState }: BriefEditorProps) {
+export default function BriefEditor({
+  empresaId,
+  initialPeriodo,
+  initialEstado,
+  initialFormState,
+}: BriefEditorProps) {
   const router = useRouter();
   const [periodo, setPeriodo] = useState(initialPeriodo ?? toMonthInput());
-  const [estado, setEstado] = useState("plan");
+  const [estado, setEstado] = useState(initialEstado ?? "plan");
   const [formState, setFormState] = useState<BriefFormState>(
     initialFormState ?? makeDefaultBriefForm(),
   );

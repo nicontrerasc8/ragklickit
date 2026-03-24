@@ -99,7 +99,6 @@ const ARTIFACT_STATUS_OPTIONS = [
   { value: "revision", label: "Revision" },
   { value: "aprobado", label: "Aprobado" },
   { value: "exception", label: "Excepcion" },
-  { value: "blocked", label: "Blocked" },
 ] as const;
 
 const ARTIFACT_STATUS_STYLES: Record<string, { color: string; bg: string; border: string; dot: string }> = {
@@ -117,6 +116,10 @@ function getArtifactStatusStyle(status: string) {
     border: "rgba(255,255,255,0.12)",
     dot: "rgba(255,255,255,0.52)",
   };
+}
+
+function normalizeArtifactStatus(status: string) {
+  return status === "blocked" ? "revision" : status;
 }
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
@@ -489,7 +492,7 @@ function DayModal({ empresaId, calendarioId, date, items, itemScores, onClose, o
 export default function CalendarioEditor(props: Props) {
   const router = useRouter();
   const [title, setTitle]   = useState(props.initialTitle || "Calendario editorial");
-  const [status, setStatus] = useState(props.initialStatus || "plan");
+  const [status, setStatus] = useState(normalizeArtifactStatus(props.initialStatus || "plan"));
   const [draggingItemId, setDraggingItemId] = useState("");
   const [dragOverDate, setDragOverDate] = useState("");
   const [regeneratingAll, setRegeneratingAll] = useState(false);

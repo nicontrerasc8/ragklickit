@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import WorkflowPanel from "@/components/aba/WorkflowPanel";
 import { updateArtifactApproval } from "@/app/protected/actions";
 import PlanPdfExportButton from "@/app/protected/empresas/[empresaId]/plan-trabajo/PlanPdfExportButton";
 import { createClient } from "@/lib/supabase/server";
 import PlanTrabajoEditor from "@/app/protected/empresas/[empresaId]/plan-trabajo/PlanTrabajoEditor";
-import { groupEntityScores, pickGlobalScores } from "@/lib/rag/scoring";
+import { groupEntityScores } from "@/lib/rag/scoring";
 import { readWorkflow } from "@/lib/workflow";
 
 type PageProps = {
@@ -63,12 +62,34 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
   }
 
   const updatedLabel = new Date(plan.updated_at).toLocaleString("es-PE");
-  const globalScores = pickGlobalScores(scoreRows ?? []);
   const initiativeScores = groupEntityScores(scoreRows ?? []);
   const workflow = readWorkflow(plan.content_json);
-  const scoreLabel = (value?: number) =>
-    typeof value === "number" ? `${Math.round(value * 100)}%` : "Sin score";
   const approvalState = workflow?.approval.state ?? "pending";
+  const artifactStatusLabel = plan.status.replaceAll("_", " ");
+  const approvalTone =
+    approvalState === "approved"
+      ? {
+          badge: "border-emerald-400/25 bg-emerald-400/12 text-emerald-100",
+          panel: "border-emerald-400/18 bg-emerald-400/8",
+          dot: "bg-emerald-300",
+          title: "Plan aprobado",
+          description: "Este plan ya fue validado y puede operarse como version vigente.",
+        }
+      : approvalState === "changes_requested"
+        ? {
+            badge: "border-amber-400/25 bg-amber-400/12 text-amber-100",
+            panel: "border-amber-400/18 bg-amber-400/8",
+            dot: "bg-amber-300",
+            title: "Cambios solicitados",
+            description: "El plan necesita ajustes antes de volver a aprobarse.",
+          }
+        : {
+            badge: "border-sky-400/25 bg-sky-400/12 text-sky-100",
+            panel: "border-sky-400/18 bg-sky-400/8",
+            dot: "bg-sky-300",
+            title: "Pendiente de aprobacion",
+            description: "El plan esta en revision. Aun no deberia ejecutarse como version final.",
+          };
 
   return (
     <div
@@ -108,9 +129,17 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
 
           <div className="relative mt-6 grid gap-6 xl:grid-cols-[1.15fr_0.85fr] xl:items-end">
             <div className="space-y-4">
-              <span className="inline-flex items-center rounded-full border border-violet-300/20 bg-violet-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-200">
-                Editor de plan
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full border border-violet-300/20 bg-violet-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-200">
+                  Editor de plan
+                </span>
+                <span
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${approvalTone.badge}`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${approvalTone.dot}`} />
+                  {approvalTone.title}
+                </span>
+              </div>
               <div className="space-y-2">
                 <h1 className="max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl">
                   {plan.title || "Plan de trabajo"}
@@ -126,6 +155,13 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">
                 Acciones del documento
               </p>
+              <div className={`mt-4 rounded-2xl border px-4 py-3 ${approvalTone.panel}`}>
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${approvalTone.dot}`} />
+                  <p className="text-sm font-semibold text-white/92">{approvalTone.title}</p>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-white/62">{approvalTone.description}</p>
+              </div>
               <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
                 <PlanPdfExportButton
                   empresaNombre={empresa.nombre}
@@ -143,70 +179,39 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
                   Volver a planes
                 </Link>
               </div>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="rounded-xl border border-white/10 px-3 py-2 text-xs uppercase text-white/65">
-                  {plan.status}
-                </span>
-                <span className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/65">
-                  v{plan.version}
-                </span>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <MetricCard label="Estado del artefacto" value={artifactStatusLabel} capitalize />
+                <MetricCard label="Aprobacion" value={approvalState.replaceAll("_", " ")} capitalize />
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {approvalState !== "approved" ? (
+                  <form action={updateArtifactApproval}>
+                    <input type="hidden" name="empresa_id" value={empresaId} />
+                    <input type="hidden" name="artifact_id" value={plan.id} />
+                    <input type="hidden" name="artifact_type" value="plan_trabajo" />
+                    <input type="hidden" name="approval_action" value="approve" />
+                    <button className="rounded-xl border border-emerald-400/25 bg-emerald-400/12 px-3 py-2 text-xs font-semibold text-emerald-100 transition-colors hover:bg-emerald-400/20">
+                      Aprobar plan
+                    </button>
+                  </form>
+                ) : (
+                  <form action={updateArtifactApproval}>
+                    <input type="hidden" name="empresa_id" value={empresaId} />
+                    <input type="hidden" name="artifact_id" value={plan.id} />
+                    <input type="hidden" name="artifact_type" value="plan_trabajo" />
+                    <input type="hidden" name="approval_action" value="reopen" />
+                    <button className="rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white/80 transition-colors hover:bg-white/[0.08]">
+                      Anular aprobacion
+                    </button>
+                  </form>
+                )}
+
+          
               </div>
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Tipo" value="Plan de trabajo" />
-            <MetricCard label="Estado" value={plan.status} capitalize />
-            <MetricCard label="Ultima actualizacion" value={updatedLabel} />
-            <MetricCard label="Artefacto" value="RAG editable" />
-            <MetricCard label="Confianza" value={scoreLabel(globalScores.confidence)} />
-            <MetricCard label="Riesgo" value={scoreLabel(globalScores.risk)} />
-            <MetricCard label="Prioridad" value={scoreLabel(globalScores.priority)} />
-            <MetricCard label="ROI esperado" value={scoreLabel(globalScores.roi)} />
-          </div>
         </section>
-
-        <WorkflowPanel
-          title="Workflow del plan"
-          workflow={workflow}
-          actions={
-            <>
-              {approvalState !== "approved" ? (
-                <form action={updateArtifactApproval}>
-                  <input type="hidden" name="empresa_id" value={empresaId} />
-                  <input type="hidden" name="artifact_id" value={plan.id} />
-                  <input type="hidden" name="artifact_type" value="plan_trabajo" />
-                  <input type="hidden" name="approval_action" value="approve" />
-                  <button className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-100 transition-colors hover:bg-emerald-400/20">
-                    Aprobar plan
-                  </button>
-                </form>
-              ) : null}
-              {approvalState !== "changes_requested" ? (
-                <form action={updateArtifactApproval}>
-                  <input type="hidden" name="empresa_id" value={empresaId} />
-                  <input type="hidden" name="artifact_id" value={plan.id} />
-                  <input type="hidden" name="artifact_type" value="plan_trabajo" />
-                  <input type="hidden" name="approval_action" value="request_changes" />
-                  <button className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs font-medium text-amber-100 transition-colors hover:bg-amber-400/20">
-                    Pedir cambios
-                  </button>
-                </form>
-              ) : null}
-              {approvalState !== "pending" ? (
-                <form action={updateArtifactApproval}>
-                  <input type="hidden" name="empresa_id" value={empresaId} />
-                  <input type="hidden" name="artifact_id" value={plan.id} />
-                  <input type="hidden" name="artifact_type" value="plan_trabajo" />
-                  <input type="hidden" name="approval_action" value="reopen" />
-                  <button className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-white/70 transition-colors hover:text-white">
-                    Reabrir
-                  </button>
-                </form>
-              ) : null}
-            </>
-          }
-        />
 
         <section className="rounded-[32px] border border-white/10 bg-black/20 p-4 shadow-2xl shadow-black/20 sm:p-6">
           <div className="mb-4 flex flex-col gap-2 border-b border-white/8 pb-4 sm:flex-row sm:items-end sm:justify-between">

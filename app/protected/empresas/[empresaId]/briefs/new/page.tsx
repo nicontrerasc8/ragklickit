@@ -122,6 +122,7 @@ export default async function NewBriefPage({ params }: NewBriefPageProps) {
         <BriefEditor
           empresaId={empresaId}
           initialPeriodo={initialPeriodo}
+          initialEstado="plan"
           initialFormState={makeDefaultBriefForm()}
         />
       </div>

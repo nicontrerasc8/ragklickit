@@ -163,17 +163,7 @@
                   {lastUpdated ? (
                     <p className="mt-1 text-[11px] text-white/25">Actualizado: {lastUpdated}</p>
                   ) : null}
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="rounded-lg border bd8 bg-w3 px-3 py-1.5 text-[11px] font-medium text-white/55">
-                      Confianza {scoreLabel(becScores.confidence)}
-                    </span>
-                    <span className="rounded-lg border bd8 bg-w3 px-3 py-1.5 text-[11px] font-medium text-white/55">
-                      Calidad {scoreLabel(becScores.data_quality)}
-                    </span>
-                    <span className="rounded-lg border bd8 bg-w3 px-3 py-1.5 text-[11px] font-medium text-white/55">
-                      Riesgo {scoreLabel(becScores.risk)}
-                    </span>
-                  </div>
+         
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0 pb-0.5">
                   <BecPdfExportButton

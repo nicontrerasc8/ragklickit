@@ -115,9 +115,30 @@ function normalizeIdeas(value: unknown): IdeaContenido[] {
   return value
     .map((item) => {
       const row = asObj(item);
+      const canal =
+        asString(row.canal).trim() ||
+        asString(row.red).trim() ||
+        asString(row.canal_nombre).trim() ||
+        asString(row.channel).trim();
+      const ideas =
+        asStringArray(row.ideas).length > 0
+          ? asStringArray(row.ideas)
+          : asStringArray(row.lineas_tematicas).length > 0
+            ? asStringArray(row.lineas_tematicas)
+            : asStringArray(row.temas).length > 0
+              ? asStringArray(row.temas)
+              : asStringArray(row.sugerencias).length > 0
+                ? asStringArray(row.sugerencias)
+                : [
+                    asString(row.idea).trim(),
+                    asString(row.tema).trim(),
+                    asString(row.titulo).trim(),
+                    asString(row.enfoque).trim(),
+                  ].filter((entry) => entry.length > 0);
+
       return {
-        canal: asString(row.canal).trim(),
-        ideas: asStringArray(row.ideas),
+        canal,
+        ideas,
       };
     })
     .filter((item) => item.canal || item.ideas.length > 0);
