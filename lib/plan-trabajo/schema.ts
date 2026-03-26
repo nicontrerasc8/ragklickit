@@ -24,9 +24,11 @@ export type PlanTrabajo = {
   cliente: string;
   marca: string;
   pais: string;
+  
   version: string;
   periodo: {
     inicio: string;
+
     fin: string;
     
   };
