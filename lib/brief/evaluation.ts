@@ -99,7 +99,7 @@ export function buildBriefEvaluation(params: {
   const objectives = selectedObjectives(brief);
   const filledFields = BRIEF_TEXT_FIELDS.filter((field) => brief.fields[field]?.trim()).length;
   const mediaBudgetField =
-    brief.fields["3. Pauta y Presupuesto - Presupuesto total de pauta asignado para este mes (Monto en USD)"] ??
+    brief.fields["Pauta y Presupuesto - Presupuesto total de pauta asignado para este mes (Monto en USD)"] ??
     "";
   const distributionField = brief.fields["Distribucion de la inversion (por canal o campana)"] ?? "";
   const sensitiveField = brief.fields["Hay algun mensaje sensible o tema que debamos evitar este mes?"] ?? "";
