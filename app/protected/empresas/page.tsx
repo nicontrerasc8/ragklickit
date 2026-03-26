@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
-import { createEmpresa } from "@/app/protected/actions";
 import { createClient } from "@/lib/supabase/server";
 import DeleteEmpresaButton from "./DeleteEmpresaButton";
+import { createEmpresa } from "./actions";
 
 const PAGE_STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');

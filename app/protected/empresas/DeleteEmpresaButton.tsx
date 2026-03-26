@@ -2,7 +2,7 @@
 
 import { useFormStatus } from "react-dom";
 
-import { deleteEmpresa } from "@/app/protected/actions";
+import { deleteEmpresa } from "./actions";
 
 type Props = {
   empresaId: string;
