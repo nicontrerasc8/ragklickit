@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { inflateRawSync } from "node:zlib";
-import { PDFParse } from "pdf-parse";
 
 import {
   BRIEF_OBJECTIVE_GROUPS,
@@ -242,17 +241,6 @@ function extractXlsxText(bytes: Uint8Array) {
   return rows.join("\n").replace(/[ \t]+/g, " ").trim();
 }
 
-async function extractPdfText(bytes: Uint8Array) {
-  const parser = new PDFParse({ data: bytes });
-
-  try {
-    const result = await parser.getText();
-    return sanitizeStoredText(result.text);
-  } finally {
-    await parser.destroy();
-  }
-}
-
 async function extractSupportedDocumentText(uploadedFile: File) {
   const fileName = uploadedFile.name || "documento";
   const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
@@ -263,7 +251,6 @@ async function extractSupportedDocumentText(uploadedFile: File) {
     "json",
     "html",
     "xml",
-    "pdf",
     "docx",
     "pptx",
     "xlsx",
@@ -271,7 +258,7 @@ async function extractSupportedDocumentText(uploadedFile: File) {
 
   if (!supportedExtensions.has(extension)) {
     throw new Error(
-      "Formato no soportado para lectura automatica. Usa txt, md, csv, json, html, xml, pdf, docx, pptx o xlsx.",
+      "Formato no soportado para lectura automatica. Usa txt, md, csv, json, html, xml, docx, pptx o xlsx.",
     );
   }
 
@@ -286,8 +273,6 @@ async function extractSupportedDocumentText(uploadedFile: File) {
     rawText = extractPptxText(bytes);
   } else if (extension === "xlsx") {
     rawText = extractXlsxText(bytes);
-  } else if (extension === "pdf") {
-    rawText = await extractPdfText(bytes);
   }
 
   rawText = sanitizeStoredText(rawText);

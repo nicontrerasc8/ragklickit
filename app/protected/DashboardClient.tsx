@@ -314,7 +314,7 @@ export default function DashboardClient({
                 <input
                   type="file"
                   name="file"
-                  accept=".txt,.md,.csv,.json,.html,.xml,.pdf,.docx,.pptx,.xlsx"
+                  accept=".txt,.md,.csv,.json,.html,.xml,.docx,.pptx,.xlsx"
                   className="hidden"
                 />
               </label>

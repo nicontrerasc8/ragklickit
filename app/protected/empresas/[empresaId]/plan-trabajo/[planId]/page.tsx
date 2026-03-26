@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { updateArtifactApproval } from "@/app/protected/actions";
-import PlanPdfExportButton from "@/app/protected/empresas/[empresaId]/plan-trabajo/PlanPdfExportButton";
 import { createClient } from "@/lib/supabase/server";
 import PlanTrabajoEditor from "@/app/protected/empresas/[empresaId]/plan-trabajo/PlanTrabajoEditor";
 import { groupEntityScores } from "@/lib/rag/scoring";
@@ -61,7 +60,6 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const updatedLabel = new Date(plan.updated_at).toLocaleString("es-PE");
   const initiativeScores = groupEntityScores(scoreRows ?? []);
   const workflow = readWorkflow(plan.content_json);
   const approvalState = workflow?.approval.state ?? "pending";
@@ -163,15 +161,6 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
                 <p className="mt-1 text-xs leading-5 text-white/62">{approvalTone.description}</p>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-                <PlanPdfExportButton
-                  empresaNombre={empresa.nombre}
-                  title={plan.title || "Plan de trabajo"}
-                  estado={plan.status}
-                  version={plan.version}
-                  updatedLabel={updatedLabel}
-                  data={plan.content_json}
-                  className="rounded-xl border border-violet-300/35 bg-violet-300/10 px-3 py-2 font-medium text-violet-100 transition-colors hover:bg-violet-300/20"
-                />
                 <Link
                   href={`/protected/empresas/${empresaId}/plan-trabajo`}
                   className="rounded-xl border border-white/10 px-3 py-2 text-white/65 transition-colors hover:text-white"

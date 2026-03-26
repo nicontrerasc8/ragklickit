@@ -297,7 +297,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                     <input
                       type="file"
                       name="support_file"
-                      accept=".pdf,.txt,.md,.csv,.json,.html,.xml,.docx,.xlsx"
+                      accept=".txt,.md,.csv,.json,.html,.xml,.docx,.xlsx"
                       className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3 py-3 text-xs text-white/60 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/15 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-violet-100"
                     />
                     <div className="mt-3 flex flex-wrap gap-1.5">

@@ -181,7 +181,7 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
           <input
             type="file"
             name="file"
-            accept=".txt,.md,.csv,.json,.html,.xml,.pdf,.docx,.pptx,.xlsx"
+            accept=".txt,.md,.csv,.json,.html,.xml,.docx,.pptx,.xlsx"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm"
           />
           <textarea
