@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef } from "react";
-import { updateEmpresa } from "@/app/protected/actions";
+import { updateEmpresa } from "./actions";
 import type { WorkflowMeta } from "@/lib/workflow";
 import {
   ArrowLeft,

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Plus, Save, Trash2 } from "lucide-react";
 
-import { updateEmpresa } from "@/app/protected/actions";
+import { updateEmpresa } from "./actions";
 
 type Empresa = {
   id: string;

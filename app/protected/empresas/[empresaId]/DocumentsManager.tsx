@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   deleteEmpresaDocument,
   updateEmpresaDocument,
-} from "@/app/protected/actions";
+} from "./actions";
 
 type DocumentItem = {
   id: string;

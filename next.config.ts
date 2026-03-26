@@ -2,9 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  serverExternalPackages: ["@react-pdf/renderer"],
   experimental: {
-      serverComponentsExternalPackages: ["@react-pdf/renderer"],
-
     serverActions: {
       bodySizeLimit: "20mb",
     },

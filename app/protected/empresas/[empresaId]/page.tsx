@@ -1,10 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 
-import {
-  createEmpresaDocument,
-} from "@/app/protected/actions";
 import { createClient } from "@/lib/supabase/server";
 import { readWorkflow, type WorkflowMeta } from "@/lib/workflow";
+import { createEmpresaDocument } from "./actions";
 import DocumentsManager from "./DocumentsManager";
 import EmpresaAlcanceEditor from "./EmpresaAlcanceEditor";
 import EmpresaDashboard from "./EmpresaDashboard";
