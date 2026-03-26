@@ -2,10 +2,8 @@
   import { unstable_noStore as noStore } from "next/cache";
   import { notFound, redirect } from "next/navigation";
 
-  import WorkflowPanel from "@/components/aba/WorkflowPanel";
   import { updateBecApproval } from "@/app/protected/actions";
   import BecEditor from "@/app/protected/empresas/[empresaId]/bec/BecEditor";
-  import BecPdfExportButton from "@/app/protected/empresas/[empresaId]/bec/BecPdfExportButton";
   import {
     CompanyForm,
     DEFAULT_COMPANY,
@@ -14,7 +12,6 @@
   } from "@/lib/bec/schema";
   import { pickGlobalScores } from "@/lib/rag/scoring";
   import { createClient } from "@/lib/supabase/server";
-  import { readWorkflow } from "@/lib/workflow";
 
   const PAGE_STYLES = `
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -110,8 +107,6 @@
           }>,
         };
     const becScores = pickGlobalScores(becScoreRows ?? []);
-    const workflow = readWorkflow(bec?.contenido_json);
-
     const becVersion = bec?.version ?? 0;
     const lastUpdated = bec?.updated_at
       ? new Intl.DateTimeFormat("es-PE", {
@@ -121,9 +116,6 @@
           timeZone: "UTC",
         }).format(new Date(bec.updated_at))
       : null;
-
-    const scoreLabel = (value?: number) =>
-      typeof value === "number" ? `${Math.round(value * 100)}%` : "Sin score";
 
     return (
       <>
@@ -166,14 +158,6 @@
          
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0 pb-0.5">
-                  <BecPdfExportButton
-                    empresaNombre={empresa.nombre}
-                    becVersion={becVersion}
-                    updatedLabel={lastUpdated}
-                    becData={becInitial}
-                    companyData={companyInitial}
-                    className="rounded-lg border bd8 bg-w3 px-3 py-1.5 text-[11px] font-medium text-white/40 hover:text-white/60 transition-all"
-                  />
                   <Link
                     href={`/protected/empresas/${empresaId}`}
                     className="rounded-lg border bd8 bg-w3 px-3 py-1.5 text-[11px] font-medium text-white/40 hover:text-white/60 transition-all"
@@ -191,31 +175,59 @@
             </header>
 
             <div className="fu d2">
-              <WorkflowPanel
-                workflow={workflow}
-                actions={
-                  bec?.id ? (
-                    <>
+              {bec?.id ? (
+                <section className="overflow-hidden rounded-3xl border border-white/8 bg-white/[0.025]">
+                  <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+                            bec.is_locked
+                              ? "border-emerald-400/25 bg-emerald-400/12 text-emerald-200"
+                              : "border-amber-300/20 bg-amber-300/10 text-amber-200"
+                          }`}
+                        >
+                          {bec.is_locked ? "BEC aprobado" : "BEC editable"}
+                        </span>
+                        <span className="rounded-full border border-white/8 bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-white/45">
+                          v{becVersion}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm font-medium text-white/78">Control de aprobación</p>
+                      <p className="mt-1 max-w-2xl text-[12px] leading-relaxed text-white/36">
+                        {bec.is_locked
+                          ? "El BEC está cerrado para edición operativa. Reábrelo si necesitas ajustar contenido antes de la siguiente versión."
+                          : "El BEC sigue abierto. Apruébalo cuando el contenido y la estructura estén listos para operar."}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
                       <form action={updateBecApproval}>
                         <input type="hidden" name="empresa_id" value={empresaId} />
                         <input type="hidden" name="bec_id" value={bec.id} />
-                        <input type="hidden" name="approval_action" value="approve" />
-                        <button className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-100 transition-colors hover:bg-emerald-400/20">
-                          Aprobar BEC
+                        <input
+                          type="hidden"
+                          name="approval_action"
+                          value={bec.is_locked ? "reopen" : "approve"}
+                        />
+                        <button
+                          className={
+                            bec.is_locked
+                              ? "rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-xs font-semibold text-white/72 transition-all hover:border-white/16 hover:bg-white/[0.05] hover:text-white"
+                              : "rounded-xl border border-emerald-400/25 bg-emerald-400/12 px-4 py-2.5 text-xs font-semibold text-emerald-100 transition-all hover:border-emerald-300/35 hover:bg-emerald-400/18"
+                          }
+                        >
+                          {bec.is_locked ? "Reabrir BEC" : "Aprobar BEC"}
                         </button>
                       </form>
-                      <form action={updateBecApproval}>
-                        <input type="hidden" name="empresa_id" value={empresaId} />
-                        <input type="hidden" name="bec_id" value={bec.id} />
-                        <input type="hidden" name="approval_action" value="reopen" />
-                        <button className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-medium text-white/70 transition-colors hover:text-white">
-                          Reabrir BEC
-                        </button>
-                      </form>
-                    </>
-                  ) : null
-                }
-              />
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <section className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-4 text-[12px] text-white/38">
+                  Guarda el BEC al menos una vez para habilitar las acciones de aprobación.
+                </section>
+              )}
             </div>
 
             <div className="fu d2">

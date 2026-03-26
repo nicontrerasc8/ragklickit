@@ -85,9 +85,9 @@ export default function AgenciaDocumentsManager({ documents }: Props) {
             className="flex flex-col"
           >
             <div className="border-b px-6 py-4">
-              <h3 className="text-base font-semibold">Contenido RAG del documento</h3>
+              <h3 className="text-base font-semibold">Contenido transcrito del documento</h3>
               <p className="text-xs text-muted-foreground">
-                Revisa y edita el contenido que usa el RAG global de la agencia.
+                Revisa y edita la transcripcion literal que usa el conocimiento global de la agencia.
               </p>
             </div>
             <div className="space-y-3 p-6">

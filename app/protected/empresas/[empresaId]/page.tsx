@@ -161,7 +161,7 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
       <section className="rounded-lg border p-5 space-y-4">
         <h2 className="text-lg font-semibold">Documentos de la empresa</h2>
         <p className="text-sm text-muted-foreground">
-          Sube archivos o pega texto manual para alimentar el RAG de esta empresa.
+          Sube archivos o pega texto manual para guardar la transcripcion literal de esta empresa.
         </p>
 
         <form action={createEmpresaDocument} className="grid gap-3 rounded-md border p-4">
@@ -183,13 +183,13 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
           <input
             type="file"
             name="file"
-            accept=".txt,.md,.csv,.json,.html,.xml,.pdf,.docx,.xlsx"
+            accept=".txt,.md,.csv,.json,.html,.xml,.pdf,.docx,.pptx,.xlsx"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm"
           />
           <textarea
             name="raw_text"
             rows={5}
-            placeholder="Contenido del documento (opcional si subes archivo)"
+            placeholder="Contenido del documento transcrito (opcional si subes archivo)"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm"
           />
           <div>

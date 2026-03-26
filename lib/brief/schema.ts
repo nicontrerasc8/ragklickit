@@ -51,16 +51,16 @@ export const BRIEF_OBJECTIVE_GROUPS = [
 export const BRIEF_TEXT_FIELDS = [
   "Productos, servicios o lineas que tienen prioridad este mes",
   "Hay algun lanzamiento, campana o promocion que debamos incluir? (Incluir fechas especificas)",
-  "2. Comunicacion y Mensaje - Pilar o mensaje de comunicacion principal este mes (segun el BEC)",
+  "Comunicacion y Mensaje - Pilar o mensaje de comunicacion principal este mes (segun el BEC)",
   "Temas o enfoques que el cliente quiere destacar en redes o blog",
   "Hay algun mensaje sensible o tema que debamos evitar este mes?",
-  "3. Pauta y Presupuesto - Presupuesto total de pauta asignado para este mes (Monto en USD)",
+  "Pauta y Presupuesto - Presupuesto total de pauta asignado para este mes (Monto en USD)",
   "Distribucion de la inversion (por canal o campana)",
   "Hay campanas nuevas o actuales que debamos activar o pausar?",
-  "4. Operativo y Dependencias - Materiales o aprobaciones faltantes para poder producir o publicar",
+  "Operativo y Dependencias - Materiales o aprobaciones faltantes para poder producir o publicar",
   "Fechas clave o eventos a considerar en el calendario (feriados, activaciones, lanzamientos)",
   "Existen dependencias internas o de cliente que puedan afectar los tiempos de publicacion?",
-  "5. Reportes y Retroalimentacion - Contenidos o campanas con mejor performance el mes anterior",
+  "Reportes y Retroalimentacion - Contenidos o campanas con mejor performance el mes anterior",
   "Aprendizajes o ajustes que deben aplicarse en este nuevo plan",
 ] as const;
 

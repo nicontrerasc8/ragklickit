@@ -4,6 +4,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { aiChat } from "@/lib/ollama/client";
+import { buildCalendarioStudioPrompt } from "@/lib/calendario/prompts";
 import {
   type CalendarioContent,
   type CalendarioGeneratedImage,
@@ -116,61 +117,17 @@ export async function generateCalendarioItemBundle(params: {
 
   const contentDraft = await aiChat({
     systemPrompt:
-      "Eres un content strategist senior para marketing. Devuelves SOLO JSON valido y sin markdown fuera de los campos indicados.",
-    userPrompt: [
-      `Empresa: ${empresaNombre}`,
-      `Calendario: ${calendarioTitulo}`,
-      `Periodo: ${periodo}`,
-      `Canal: ${item.canal}`,
-      `Formato: ${item.formato}`,
-      `Tema: ${item.tema || item.titulo_base || "Sin tema"}`,
-      `Subtema: ${item.subtema || "Sin subtema"}`,
-      `Pilar: ${item.pilar || "General"}`,
-      `Buyer persona: ${item.buyer_persona || "General"}`,
-      `Objetivo del contenido: ${item.objetivo_contenido || "Sin objetivo definido"}`,
-      `CTA base: ${item.CTA || "Sin CTA"}`,
-      `Mensaje clave: ${item.mensaje_clave || "Sin mensaje clave"}`,
-      "",
-      "Genera un paquete listo para publicacion.",
-      "Reglas:",
-      "1) Devuelve SOLO JSON.",
-      "2) caption y short_copy deben estar en espanol y listos para publicar.",
-      "3) hashtags debe ser un array de hashtags sin texto adicional.",
-      "4) blog_body_markdown solo debe tener contenido si el formato o canal corresponde a blog/articulo; en otro caso devuelve cadena vacia.",
-      "5) visual_direction debe describir estilo visual, tono, composicion y color.",
-      "6) image_prompt_base debe servir para generar imagenes consistentes para el post.",
-      "7) Si es email, devuelve email_subject, email_preheader y email_body_markdown completos; si no, dejalos vacios.",
-      "8) Si es video o reel, devuelve video_hook y video_script; si no, dejalos vacios.",
-      "9) Para video o reel, video_script debe incluir 3 variantes creativas claramente separadas: Variante 1, Variante 2 y Variante 3.",
-      "10) Cada variante de video debe usar un enfoque distinto. Mezcla entre tutorial, demo, mito vs realidad, FAQ, POV, storytelling, objecion-respuesta, comparativa, error comun, checklist o prueba social.",
-      "11) No hagas tres variantes cosmeticamente iguales. Deben cambiar hook, estructura y ritmo narrativo.",
-      "12) Si es carrusel, devuelve carousel_slides como array con 4 a 8 ideas/frames breves; si no, devuelve array vacio.",
-      "13) headline, caption y short_copy deben evitar lugares comunes y sonar especificos para el tema, buyer persona y CTA.",
-      "14) visual_direction e image_prompt_base deben ser concretos, cinematograficos y utiles para produccion; evita descripciones vagas como \"moderno\" sin detalle.",
-      "",
-      `JSON exacto esperado: ${JSON.stringify({
-        content_kind: contentKind,
-        headline: existingBundle?.headline ?? "",
-        caption: existingBundle?.caption ?? "",
-        short_copy: existingBundle?.short_copy ?? "",
-        blog_title: existingBundle?.blog_title ?? "",
-        blog_body_markdown: existingBundle?.blog_body_markdown ?? "",
-        email_subject: existingBundle?.email_subject ?? "",
-        email_preheader: existingBundle?.email_preheader ?? "",
-        email_body_markdown: existingBundle?.email_body_markdown ?? "",
-        video_hook: existingBundle?.video_hook ?? "",
-        video_script: existingBundle?.video_script ?? "",
-        carousel_slides: existingBundle?.carousel_slides ?? [],
-        cta: existingBundle?.cta ?? item.CTA ?? "",
-        hashtags: existingBundle?.hashtags ?? [],
-        visual_direction: existingBundle?.visual_direction ?? "",
-        image_prompt_base: existingBundle?.image_prompt_base ?? "",
-      })}`,
-      isLongform
-        ? "Es un contenido longform. blog_title y blog_body_markdown deben venir completos."
-        : "No es longform. blog_title y blog_body_markdown deben ir vacios.",
-    ].join("\n"),
-    temperature: 0.35,
+      "Eres un content strategist senior para marketing. Devuelves SOLO JSON valido, especifico, publicable y sin markdown fuera de los campos permitidos.",
+    userPrompt: buildCalendarioStudioPrompt({
+      empresaNombre,
+      calendarioTitulo,
+      periodo,
+      item,
+      contentKind,
+      isLongform,
+      existingBundle,
+    }),
+    temperature: 0.45,
   });
 
   const parsed = safeJsonParse(

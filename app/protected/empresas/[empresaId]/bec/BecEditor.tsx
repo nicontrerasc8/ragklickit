@@ -297,6 +297,7 @@ export default function BecEditor({
   const [bec, setBec] = useState<BECState>(initialBec);
   const [loadingBec, setLoadingBec] = useState(false);
   const [savingBec, setSavingBec] = useState(false);
+  const [regenerationPrompt, setRegenerationPrompt] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const visibleSections = useMemo(
@@ -322,14 +323,18 @@ export default function BecEditor({
       const res = await fetch(`/api/empresas/${empresaId}/bec/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company, bec }),
+        body: JSON.stringify({ company, bec, prompt: regenerationPrompt }),
       });
       const data = (await res.json()) as { error?: string; bec?: BECState };
       if (!res.ok || data.error || !data.bec) {
         throw new Error(data.error || "No se pudo generar BEC");
       }
       setBec(data.bec);
-      setStatus("BEC generado con IA. Revisa el contenido y guarda cuando este listo.");
+      setStatus(
+        regenerationPrompt.trim()
+          ? "BEC regenerado con IA usando tus instrucciones. Revisa el contenido y guarda si te sirve."
+          : "BEC generado con IA. Revisa el contenido y guarda cuando este listo.",
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
@@ -429,6 +434,22 @@ export default function BecEditor({
             </div>
           </div>
 
+          <div className="space-y-1.5">
+            <label className="pl-0.5 text-[11px] font-medium text-white/40">
+              Instrucciones para regenerar
+            </label>
+            <textarea
+              rows={4}
+              value={regenerationPrompt}
+              onChange={(e) => setRegenerationPrompt(e.target.value)}
+              placeholder="Ej: hazlo mas orientado a conversion B2B, evita tono aspiracional y refuerza diferenciadores del servicio."
+              className="w-full rounded-2xl border border-white/8 bg-white/[0.03] px-3.5 py-3 text-[13px] leading-relaxed text-white/80 placeholder:text-white/18 transition-all focus:border-white/16 focus:bg-white/[0.045] focus:outline-none resize-none"
+            />
+            <p className="text-[11px] leading-relaxed text-white/28">
+              Si ya existe un BEC, la IA lo tomara como base y aplicara esta instruccion para regenerarlo.
+            </p>
+          </div>
+
           <button
             type="button"
             onClick={generateBEC}
@@ -443,7 +464,7 @@ export default function BecEditor({
             ) : (
               <>
                 <Sparkles size={14} />
-                Generar BEC con IA
+                {regenerationPrompt.trim() ? "Regenerar BEC con instrucciones" : "Generar BEC con IA"}
               </>
             )}
           </button>

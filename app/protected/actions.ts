@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { inflateRawSync } from "node:zlib";
+import { PDFParse } from "pdf-parse";
 
 import {
   BRIEF_OBJECTIVE_GROUPS,
@@ -22,11 +23,13 @@ import {
   makeDefaultPlanTrabajo,
   normalizePlanTrabajoContent,
 } from "@/lib/plan-trabajo/schema";
+import { buildPlanTrabajoPrompt } from "@/lib/plan-trabajo/prompts";
 import {
   clearCalendarioAssetBundles,
   makeDefaultCalendarioContent,
   normalizeCalendarioContent,
 } from "@/lib/calendario/schema";
+import { buildCalendarioDraftPrompt } from "@/lib/calendario/prompts";
 import {
   buildCalendarioArtifactScores,
   buildPlanArtifactScores,
@@ -54,8 +57,13 @@ function decodeUtf8(bytes: Uint8Array) {
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
-function decodeLatin1(bytes: Uint8Array) {
-  return new TextDecoder("latin1", { fatal: false }).decode(bytes);
+function sanitizeStoredText(value: string) {
+  return value
+    .replace(/\u0000/g, "")
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
+    .replace(/\r\n/g, "\n")
+    .trim();
 }
 
 function xmlToText(xml: string) {
@@ -147,6 +155,31 @@ function extractDocxText(bytes: Uint8Array) {
   return xmlToText(decodeUtf8(data));
 }
 
+function extractPptxText(bytes: Uint8Array) {
+  const entries = readZipEntries(bytes);
+  const slideEntries = entries
+    .filter((e) => /^ppt\/slides\/slide\d+\.xml$/.test(e.name))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+  const slides: string[] = [];
+  for (const entry of slideEntries) {
+    const data = extractZipEntry(bytes, entry);
+    if (!data) continue;
+
+    const xml = decodeUtf8(data);
+    const matches = xml.match(/<a:t>([\s\S]*?)<\/a:t>/g) ?? [];
+    const texts = matches
+      .map((match) => match.replace(/<\/?a:t>/g, "").trim())
+      .filter(Boolean);
+
+    if (texts.length > 0) {
+      slides.push(texts.join(" "));
+    }
+  }
+
+  return slides.join("\n\n").replace(/[ \t]+/g, " ").trim();
+}
+
 function extractXlsxText(bytes: Uint8Array) {
   const entries = readZipEntries(bytes);
   const sharedEntry = entries.find((e) => e.name === "xl/sharedStrings.xml");
@@ -209,13 +242,15 @@ function extractXlsxText(bytes: Uint8Array) {
   return rows.join("\n").replace(/[ \t]+/g, " ").trim();
 }
 
-function extractPdfText(bytes: Uint8Array) {
-  const asLatin1 = decodeLatin1(bytes);
-  const matches = asLatin1.match(/\(([^()]{2,500})\)/g) ?? [];
-  const pieces = matches
-    .map((m) => m.slice(1, -1))
-    .filter((t) => /[A-Za-zÃÃ‰ÃÃ“ÃšÃ¡Ã©Ã­Ã³ÃºÃ‘Ã±0-9]/.test(t));
-  return pieces.join(" ").replace(/\s+/g, " ").trim();
+async function extractPdfText(bytes: Uint8Array) {
+  const parser = new PDFParse({ data: bytes });
+
+  try {
+    const result = await parser.getText();
+    return sanitizeStoredText(result.text);
+  } finally {
+    await parser.destroy();
+  }
 }
 
 async function extractSupportedDocumentText(uploadedFile: File) {
@@ -230,12 +265,13 @@ async function extractSupportedDocumentText(uploadedFile: File) {
     "xml",
     "pdf",
     "docx",
+    "pptx",
     "xlsx",
   ]);
 
   if (!supportedExtensions.has(extension)) {
     throw new Error(
-      "Formato no soportado para lectura automatica. Usa txt, md, csv, json, html, xml, pdf, docx o xlsx.",
+      "Formato no soportado para lectura automatica. Usa txt, md, csv, json, html, xml, pdf, docx, pptx o xlsx.",
     );
   }
 
@@ -246,13 +282,15 @@ async function extractSupportedDocumentText(uploadedFile: File) {
     rawText = decodeUtf8(bytes).trim();
   } else if (extension === "docx") {
     rawText = extractDocxText(bytes);
+  } else if (extension === "pptx") {
+    rawText = extractPptxText(bytes);
   } else if (extension === "xlsx") {
     rawText = extractXlsxText(bytes);
   } else if (extension === "pdf") {
-    rawText = extractPdfText(bytes);
+    rawText = await extractPdfText(bytes);
   }
 
-  rawText = rawText.trim();
+  rawText = sanitizeStoredText(rawText);
   if (!rawText) {
     throw new Error("No se pudo extraer texto del archivo. Puedes probar con otro PDF o pegar el contenido como documento.");
   }
@@ -371,6 +409,37 @@ function revalidateEmpresaRoutes(empresaId: string) {
   revalidatePath(`/protected/empresas/${empresaId}/briefs`);
   revalidatePath(`/protected/empresas/${empresaId}/plan-trabajo`);
   revalidatePath(`/protected/empresas/${empresaId}/calendario`);
+}
+
+function nextBriefPeriodoBase(now = new Date()) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+}
+
+function normalizeBriefPeriodoOrThrow(periodo: string) {
+  const match = periodo.match(/^(\d{4})-(\d{2})/);
+  if (!match) {
+    throw new Error("Periodo de brief invalido.");
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new Error("Periodo de brief invalido.");
+  }
+
+  const requested = new Date(Date.UTC(year, month - 1, 1));
+  const expected = nextBriefPeriodoBase();
+
+  if (
+    requested.getUTCFullYear() !== expected.getUTCFullYear() ||
+    requested.getUTCMonth() !== expected.getUTCMonth()
+  ) {
+    throw new Error(
+      `El brief solo puede crearse para el mes siguiente: ${expected.toISOString().slice(0, 7)}.`,
+    );
+  }
+
+  return requested.toISOString().slice(0, 10);
 }
 
 async function upsertBrief(
@@ -1643,7 +1712,7 @@ export async function createEmpresaDocument(formData: FormData) {
   const { supabase, agenciaId } = await requireUserAgenciaContext();
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const title = String(formData.get("title") ?? "").trim();
-  const rawTextInput = String(formData.get("raw_text") ?? "").trim();
+  const rawTextInput = sanitizeStoredText(String(formData.get("raw_text") ?? ""));
   const docType = String(formData.get("doc_type") ?? "manual").trim() || "manual";
   const uploadedFile = formData.get("file");
 
@@ -1666,50 +1735,15 @@ export async function createEmpresaDocument(formData: FormData) {
   let empresaFileId: string | null = null;
 
   if (!rawText && uploadedFile instanceof File && uploadedFile.size > 0) {
-    const fileName = uploadedFile.name || "documento";
-    const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
-    const supportedExtensions = new Set([
-      "txt",
-      "md",
-      "csv",
-      "json",
-      "html",
-      "xml",
-      "pdf",
-      "docx",
-      "xlsx",
-    ]);
-
-    if (!supportedExtensions.has(extension)) {
-      throw new Error(
-        "Formato no soportado para lectura automatica. Usa txt, md, csv, json, html, xml, pdf, docx o xlsx, o pega texto manual.",
-      );
-    }
-
-    const bytes = new Uint8Array(await uploadedFile.arrayBuffer());
-    if (["txt", "md", "csv", "json", "html", "xml"].includes(extension)) {
-      rawText = decodeUtf8(bytes).trim();
-    } else if (extension === "docx") {
-      rawText = extractDocxText(bytes);
-    } else if (extension === "xlsx") {
-      rawText = extractXlsxText(bytes);
-    } else if (extension === "pdf") {
-      rawText = extractPdfText(bytes);
-    }
-
-    rawText = rawText.trim();
-    if (!rawText) {
-      throw new Error("No se pudo extraer texto del archivo. Puedes pegar texto manual.");
-    }
-
-    rawText = await maybeTranslateWithOllama(rawText);
+    const extracted = await extractSupportedDocumentText(uploadedFile);
+    rawText = extracted.rawText;
 
     const { data: empresaFile, error: fileError } = await supabase
       .from("empresa_file")
       .insert({
         agencia_id: agenciaId,
         empresa_id: empresaId,
-        nombre: fileName,
+        nombre: extracted.fileName,
         mime_type: uploadedFile.type || null,
         file_size_bytes: uploadedFile.size,
         estado: "procesado",
@@ -1729,16 +1763,6 @@ export async function createEmpresaDocument(formData: FormData) {
     throw new Error("Debes subir un archivo o pegar contenido manual.");
   }
 
-  let ragText = rawText;
-  try {
-    const summary = await summarizeForRagWithOllama(rawText, title, docType);
-    if (summary) {
-      ragText = `RESUMEN_IA\n${summary}\n\nCONTENIDO_ORIGINAL\n${rawText}`;
-    }
-  } catch {
-    // Keep extracted text if summarization fails.
-  }
-
   const { error } = await supabase.from("kb_documents").insert({
     agencia_id: agenciaId,
     empresa_id: empresaId,
@@ -1746,7 +1770,7 @@ export async function createEmpresaDocument(formData: FormData) {
     scope: "org",
     doc_type: docType,
     title,
-    raw_text: ragText,
+    raw_text: rawText,
   });
 
   if (error) {
@@ -1759,7 +1783,7 @@ export async function createEmpresaDocument(formData: FormData) {
 export async function createAgenciaDocument(formData: FormData) {
   const { supabase, agenciaId } = await requireUserAgenciaContext();
   const title = String(formData.get("title") ?? "").trim();
-  const rawTextInput = String(formData.get("raw_text") ?? "").trim();
+  const rawTextInput = sanitizeStoredText(String(formData.get("raw_text") ?? ""));
   const docType = String(formData.get("doc_type") ?? "manual").trim() || "manual";
   const uploadedFile = formData.get("file");
 
@@ -1770,57 +1794,12 @@ export async function createAgenciaDocument(formData: FormData) {
   let rawText = rawTextInput;
 
   if (!rawText && uploadedFile instanceof File && uploadedFile.size > 0) {
-    const fileName = uploadedFile.name || "documento";
-    const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
-    const supportedExtensions = new Set([
-      "txt",
-      "md",
-      "csv",
-      "json",
-      "html",
-      "xml",
-      "pdf",
-      "docx",
-      "xlsx",
-    ]);
-
-    if (!supportedExtensions.has(extension)) {
-      throw new Error(
-        "Formato no soportado para lectura automatica. Usa txt, md, csv, json, html, xml, pdf, docx o xlsx, o pega texto manual.",
-      );
-    }
-
-    const bytes = new Uint8Array(await uploadedFile.arrayBuffer());
-    if (["txt", "md", "csv", "json", "html", "xml"].includes(extension)) {
-      rawText = decodeUtf8(bytes).trim();
-    } else if (extension === "docx") {
-      rawText = extractDocxText(bytes);
-    } else if (extension === "xlsx") {
-      rawText = extractXlsxText(bytes);
-    } else if (extension === "pdf") {
-      rawText = extractPdfText(bytes);
-    }
-
-    rawText = rawText.trim();
-    if (!rawText) {
-      throw new Error("No se pudo extraer texto del archivo. Puedes pegar texto manual.");
-    }
-
-    rawText = await maybeTranslateWithOllama(rawText);
+    const extracted = await extractSupportedDocumentText(uploadedFile);
+    rawText = extracted.rawText;
   }
 
   if (!rawText) {
     throw new Error("Debes subir un archivo o pegar contenido manual.");
-  }
-
-  let ragText = rawText;
-  try {
-    const summary = await summarizeForRagWithOllama(rawText, title, docType);
-    if (summary) {
-      ragText = `RESUMEN_IA\n${summary}\n\nCONTENIDO_ORIGINAL\n${rawText}`;
-    }
-  } catch {
-    // Keep extracted text if summarization fails.
   }
 
   const { error } = await supabase.from("kb_documents").insert({
@@ -1830,7 +1809,7 @@ export async function createAgenciaDocument(formData: FormData) {
     scope: "org",
     doc_type: docType,
     title,
-    raw_text: ragText,
+    raw_text: rawText,
   });
 
   if (error) {
@@ -2202,9 +2181,7 @@ export async function createBrief(formData: FormData) {
     return null;
   }
 
-  const periodDate = new Date(periodo);
-  periodDate.setUTCDate(1);
-  const normalizedPeriodo = periodDate.toISOString().slice(0, 10);
+  const normalizedPeriodo = normalizeBriefPeriodoOrThrow(periodo);
 
   let contenidoJson: unknown = { texto: contenido };
   try {
@@ -2671,9 +2648,7 @@ export async function generateBriefDraft(formData: FormData) {
     return null;
   }
 
-  const periodDate = new Date(periodo);
-  periodDate.setUTCDate(1);
-  const normalizedPeriodo = periodDate.toISOString().slice(0, 10);
+  const normalizedPeriodo = normalizeBriefPeriodoOrThrow(periodo);
 
   const { empresa, docs } = await getEmpresaContext(empresaId);
   if (!empresa) {
@@ -2953,9 +2928,21 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 
   const generatedPlan = await aiChat({
     systemPrompt:
-      "Eres PM, estratega senior de marketing y director de contenido para agencias. Respondes SOLO JSON valido y sin texto adicional. Debes producir planes con criterio ejecutivo y riqueza editorial real.",
-    userPrompt: `Construye un plan de trabajo mensual para ${brief.periodo} con la logica de una plantilla ejecutiva tipo cuadro, similar a esta estructura de secciones: comunidad, resumen de actualizaciones, cantidad de contenidos a desarrollar, pilares de comunicacion, contenido sugerido, productos/servicios a destacar, mensajes destacados, fechas importantes, promociones, plan de medios, eventos, notas adicionales y pendientes del cliente.\n\nAgencia:\n${JSON.stringify(agencia ?? {}, null, 2)}\n\nEmpresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa:\n${empresaMetadataContext || "{}"}\n\nBEC:\n${becContext}\n\nBrief seleccionado:\n${briefContext}\n\nDocumento adjunto para esta generacion:\n${supportDocContext || "Sin documento adjunto"}\n\nConocimiento de empresa:\n${empresaDocsContext || "Sin documentos de empresa"}\n\nConocimiento de agencia:\n${agenciaDocsContext || "Sin documentos globales de agencia"}\n\nPrompts activos:\n${promptContext || "Sin prompts activos"}\n\nReglas clave:\n1) Ajusta el contenido al contexto de Peru.\n2) Mantén coherencia total con BEC + BRIEF + metadata_json + evidencia documental.\n3) Si existe documento adjunto, usalo como insumo prioritario para completar y afinar el plan.\n4) Respeta restricciones legales/normativas y tono de voz.\n5) Incluye alcance_calendario exactamente como pauta operativa.\n6) En comunidad, usa metricas resumidas por red con campos red, mes_anterior y meta.\n7) En resumen_actualizaciones, redacta una sintesis ejecutiva y observaciones puntuales con diagnostico y criterio, no frases vacias.\n8) En cantidad_contenidos, usa red, cantidad y formatos esperados.\n9) No propongas canales fuera de alcance_calendario. Si un canal no aparece en alcance_calendario, excluyelo de comunidad, cantidad_contenidos y contenido_sugerido.\n10) En cada item de cantidad_contenidos, sugiere SIEMPRE formatos concretos por red si la cantidad es mayor a 0. Ejemplos validos: reels, carruseles, post estaticos, historias, mails, blogs, banners, videos cortos, anuncios, piezas JPG o MP4. No dejes formatos vacio salvo que la cantidad sea 0.\n11) En pilares_comunicacion, reparte porcentajes y enfocalos en estrategia, no en copies.\n12) En contenido_sugerido genera una verdadera lluvia de ideas por canal. Para cada canal con cantidad > 0, entrega varias ideas generales, no una sola si el canal admite mas volumen. Como referencia, genera entre 3 y 8 ideas por canal segun el peso del canal, sin repetir enfoques. NO des contenidos concretos. SOLO devuelve ideas generales o lineas tematicas por canal. No escribas captions, guiones, copies, textos finales, hashtags, enlaces ni piezas ya redactadas.\n13) Si el canal o formato admite video, reparte las ideas entre varios arquetipos, no una sola formula repetida. Mezcla enfoques como: testimonio, POV ejecutivo, demo corta, tutorial paso a paso, error comun, mito vs realidad, pregunta incomoda, comparativa, checklist visual, objecion-respuesta, detras de camaras, fragmento de caso de exito, storytelling de problema-solucion y recap de webinar.\n14) Para videos, evita ideas clonadas. Cada propuesta debe cambiar promesa, estructura y energia.\n15) Evita ideas genericas como \"hablar sobre beneficios\" o \"post institucional\". Cada idea debe tener angulo, tension o promesa clara.\n16) En fechas_importantes incluye fechas del mes realmente utiles para planificacion: feriados de Peru, efemerides comerciales, festividades, campañas estacionales y fechas relacionadas con la industria o negocio del cliente cuando apliquen. Si no hay una fecha exacta, puedes incluir hitos comerciales del mes claramente descritos.\n17) En promociones, si no aplica, usa exactamente \"NO APLICA\".\n18) En plan_medios_link, deja URL o texto corto si no existe link final.\n19) No inventes datos criticos. Si falta evidencia, deja el contenido util pero conservador y alineado a BEC/brief/metadata.\n20) El resultado debe sentirse senior: mas criterio, mas contraste, mas especificidad y menos frases plantilla.\n\nDevuelve SOLO JSON con esta estructura exacta de raiz:\n${JSON.stringify({ plan_trabajo: defaultPlanTrabajo })}`,
-    temperature: 0.25,
+      "Eres PM, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Debes producir planes con criterio ejecutivo, inteligencia comercial y riqueza editorial real.",
+    userPrompt: buildPlanTrabajoPrompt({
+      periodo: brief.periodo,
+      agencia: agencia ?? {},
+      empresa,
+      empresaMetadataContext,
+      becContext,
+      briefContext,
+      supportDocContext,
+      empresaDocsContext,
+      agenciaDocsContext,
+      promptContext,
+      defaultPlanTrabajo,
+    }),
+    temperature: 0.35,
   });
 
   let contentJson: Record<string, unknown> = { plan_trabajo: defaultPlanTrabajo };
@@ -3033,6 +3020,7 @@ export async function generateCalendarioDraft(formData: FormData) {
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const planArtifactId = String(formData.get("plan_artifact_id") ?? "").trim();
   const alcanceCalendarioRaw = String(formData.get("alcance_calendario") ?? "").trim();
+  const customPrompt = String(formData.get("custom_prompt") ?? "").trim();
   const alcanceFromForm = parseAlcanceCalendario(alcanceCalendarioRaw);
 
   if (!empresaId || !planArtifactId) {
@@ -3141,42 +3129,17 @@ export async function generateCalendarioDraft(formData: FormData) {
 
   const generatedCalendario = await aiChat({
     systemPrompt:
-      "Eres content planner senior y director creativo de performance. Respondes SOLO JSON valido sin markdown ni texto adicional.",
-    userPrompt: [
-      `Genera un calendario editorial mensual para el periodo ${periodo}.`,
-      "",
-      "Contexto empresa:",
-      JSON.stringify(empresa, null, 2),
-      "",
-      "METADATA_JSON de empresa:",
-      empresaMetadataContext || "{}",
-      "",
-      "Plan de trabajo base:",
-      JSON.stringify(planRoot, null, 2),
-      "",
-      `Alcance operativo por canal: ${JSON.stringify(alcanceCalendario)}`,
-      "",
-      "Reglas estrictas:",
-      "1) Devuelve SOLO JSON con la estructura exacta indicada.",
-      "2) Usa fechas reales YYYY-MM-DD dentro del mes del periodo.",
-      "2.1) NUNCA programes piezas en domingo. Todas las fechas generadas por IA deben caer entre lunes y sabado.",
-      "3) Mantén coherencia con plan_trabajo, especialmente pilares, ideas sugeridas, mensajes destacados y productos/servicios.",
-      "4) calendario.items debe contener todos los eventos editables.",
-      "5) No agregues claves fuera de la estructura.",
-      "6) Cada item debe sentirse como una pieza distinta, no como una plantilla reciclada con otro titulo.",
-      "7) Si hay formatos de video, reparte los items entre distintos estilos narrativos. No repitas siempre talking head o promo directa. Alterna tutorial, demo, mito vs realidad, FAQ, lista rapida, caso breve, error comun, comparativa, POV, behind the scenes, recap, objection handling y storytelling.",
-      "8) Los videos deben variar tambien en promesa y energia: algunos educan, otros confrontan, otros muestran prueba, otros convierten.",
-      "9) Si hay multiples piezas del mismo canal o formato, diversifica angulo, CTA, pilar y buyer persona.",
-      "10) Evita temas vacios o hiper genericos. Cada item debe traer una hipotesis editorial concreta.",
-      "11) metadata_json es la fuente operativa de verdad. Si hay conflicto con el plan, el formulario o cualquier otra fuente, manda metadata_json.",
-      "12) Si el formato es video, reel o pieza audiovisual, propon variedades reales: demo, tutorial, POV, entrevista corta, comparativa, mito vs realidad, checklist, secuencia problema-solucion, fragmento de webinar, testimonio o respuesta a objecion.",
-      "13) No llenes el calendario con la misma idea reformulada. Cambia enfoque, audiencia, friccion, etapa del funnel y CTA.",
-      "14) titulo_base, tema y subtema deben ser especificos y producir una pieza que un equipo creativo pueda entender de inmediato.",
-      "",
-      "Estructura exacta requerida:",
-      JSON.stringify(defaultCalendario),
-    ].join("\n"),
-    temperature: 0.2,
+      "Eres content planner senior, director creativo y estratega de performance para una agencia premium. Respondes SOLO JSON valido sin markdown ni texto adicional. Tu salida debe sentirse senior, creativa, comercial y lista para operar.",
+    userPrompt: buildCalendarioDraftPrompt({
+      periodo,
+      empresa,
+      empresaMetadataContext,
+      planRoot,
+      alcanceCalendario,
+      defaultCalendario,
+      customPrompt,
+    }),
+    temperature: 0.35,
   });
 
   let contentJson: Record<string, unknown> = defaultCalendario as unknown as Record<string, unknown>;

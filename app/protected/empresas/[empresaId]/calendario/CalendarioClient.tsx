@@ -209,6 +209,7 @@ export default function CalendarioClient({
   calendarios,
 }: Props) {
   const [selectedPlan, setSelectedPlan] = useState(planes[0]?.id ?? "");
+  const [customPrompt, setCustomPrompt] = useState("");
 
   return (
     <div
@@ -281,6 +282,7 @@ export default function CalendarioClient({
             <form action={generateCalendarioDraft} className="flex flex-col gap-3">
               <input type="hidden" name="empresa_id" value={empresaId} />
               <input type="hidden" name="alcance_calendario" value={alcanceCalendario} />
+              <input type="hidden" name="custom_prompt" value={customPrompt} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex-1">
                   <label className="block text-xs text-white/30 mb-1.5 ml-0.5">Plan base</label>
@@ -303,6 +305,22 @@ export default function CalendarioClient({
                     })}
                   </select>
                 </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/8 bg-white/2 p-4">
+                <label className="block text-xs font-semibold uppercase tracking-widest text-white/35 mb-2">
+                  Instrucciones para generar
+                </label>
+                <textarea
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  rows={4}
+                  placeholder="Ej: prioriza contenido mas educativo para LinkedIn, evita promos repetitivas y refuerza piezas de consideracion para leads frios."
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition-all resize-none"
+                />
+                <p className="mt-2 text-[11px] leading-relaxed text-white/30">
+                  Opcional. La IA usara esta indicacion adicional sin romper el alcance, el plan base ni las restricciones del calendario.
+                </p>
               </div>
 
               <div className="sm:self-end">

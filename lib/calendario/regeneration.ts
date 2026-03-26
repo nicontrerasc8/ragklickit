@@ -1,5 +1,10 @@
 import { aiChat } from "@/lib/ollama/client";
 import {
+  buildCalendarioFullRegenerationPrompt,
+  buildCalendarioItemRegenerationPrompt,
+  itemShapeFromAI,
+} from "@/lib/calendario/prompts";
+import {
   type CalendarioContent,
   type CalendarioItem,
   normalizeCalendarioContent,
@@ -13,22 +18,6 @@ function safeJsonParse<T>(raw: string, fallback: T): T {
   }
 }
 
-function itemShapeFromAI(item: CalendarioItem) {
-  return {
-    canal: item.canal,
-    pilar: item.pilar,
-    tema: item.tema,
-    subtema: item.subtema,
-    buyer_persona: item.buyer_persona,
-    objetivo_contenido: item.objetivo_contenido,
-    formato: item.formato,
-    titulo_base: item.titulo_base,
-    CTA: item.CTA,
-    mensaje_clave: item.mensaje_clave,
-    hashtags: item.hashtags,
-  };
-}
-
 export async function regenerateCalendarioItem(params: {
   empresaNombre: string;
   calendarioTitulo: string;
@@ -40,31 +29,15 @@ export async function regenerateCalendarioItem(params: {
 
   const raw = await aiChat({
     systemPrompt:
-      "Eres content planner senior. Devuelves SOLO JSON valido, concreto y util para operar.",
-    userPrompt: [
-      `Empresa: ${empresaNombre}`,
-      `Calendario: ${calendarioTitulo}`,
-      `Periodo: ${periodo}`,
-      "",
-      "Item actual:",
-      JSON.stringify(item, null, 2),
-      "",
-      "Tarea:",
-      "Regenera este item del calendario manteniendo su fecha y su rol operativo, pero mejorando enfoque, gancho, claridad y utilidad editorial.",
-      "Si el usuario da un prompt adicional, sigue esa direccion sin salirte del canal, formato y contexto.",
-      "",
-      "Reglas:",
-      "1) Devuelve SOLO JSON.",
-      "2) No cambies fecha, id, semana, orden_semana ni estado.",
-      "3) Manten coherencia con el canal y formato declarados.",
-      "4) titulo_base, tema y subtema deben ser concretos y distintos entre si cuando aplique.",
-      "5) CTA y mensaje_clave deben ser accionables, no genericos.",
-      "6) hashtags debe ser un array de strings.",
-      customPrompt?.trim() ? `7) Prompt adicional del usuario: ${customPrompt.trim()}` : "7) No hay prompt adicional del usuario.",
-      "",
-      `JSON exacto esperado: ${JSON.stringify(itemShapeFromAI(item))}`,
-    ].join("\n"),
-    temperature: 0.45,
+      "Eres content planner senior. Devuelves SOLO JSON valido, concreto, especifico y util para operar contenido real.",
+    userPrompt: buildCalendarioItemRegenerationPrompt({
+      empresaNombre,
+      calendarioTitulo,
+      periodo,
+      item,
+      customPrompt,
+    }),
+    temperature: 0.55,
   });
 
   const parsed = safeJsonParse(raw, itemShapeFromAI(item));
@@ -105,47 +78,14 @@ export async function regenerateCalendarioContent(params: {
   const raw = await aiChat({
     systemPrompt:
       "Eres content planner senior. Devuelves SOLO JSON valido, especifico, util para produccion y sin texto adicional.",
-    userPrompt: [
-      `Empresa: ${params.empresaNombre}`,
-      `Calendario: ${params.calendarioTitulo}`,
-      `Periodo: ${normalized.periodo}`,
-      "",
-      "Items actuales del calendario:",
-      JSON.stringify(
-        normalized.calendario.items.map((item) => ({
-          id: item.id,
-          fecha: item.fecha,
-          canal: item.canal,
-          formato: item.formato,
-          titulo_base: item.titulo_base,
-          tema: item.tema,
-          subtema: item.subtema,
-          objetivo_contenido: item.objetivo_contenido,
-          CTA: item.CTA,
-          mensaje_clave: item.mensaje_clave,
-          pilar: item.pilar,
-          buyer_persona: item.buyer_persona,
-        })),
-        null,
-        2,
-      ),
-      "",
-      "Tarea:",
-      "Regenera TODO el calendario manteniendo exactamente la misma cantidad de items y sin mover sus fechas.",
-      "Debes mejorar angulos, hooks, CTAs, mensaje y claridad editorial item por item.",
-      "",
-      "Reglas:",
-      "1) Devuelve SOLO JSON.",
-      "2) Devuelve un objeto con clave items.",
-      "3) items debe tener exactamente el mismo numero de elementos y en el mismo orden de entrada.",
-      "4) No cambies fechas, ids, semanas, orden_semana ni estados. Solo regenera el contenido editorial de cada item.",
-      "5) Conserva coherencia con canal y formato.",
-      "6) Evita repetir la misma idea entre items.",
-      customPrompt?.trim() ? `7) Prompt adicional del usuario: ${customPrompt.trim()}` : "7) No hay prompt adicional del usuario.",
-      "",
-      `JSON exacto esperado: ${JSON.stringify({ items: fallback })}`,
-    ].join("\n"),
-    temperature: 0.45,
+    userPrompt: buildCalendarioFullRegenerationPrompt({
+      empresaNombre: params.empresaNombre,
+      calendarioTitulo: params.calendarioTitulo,
+      periodo: normalized.periodo,
+      items: normalized.calendario.items,
+      customPrompt,
+    }),
+    temperature: 0.55,
   });
 
   const parsed = safeJsonParse(raw, { items: fallback });

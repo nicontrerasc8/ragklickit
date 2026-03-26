@@ -140,6 +140,7 @@ function PlanLinkButton({
 
 export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, planes }: Props) {
   const [selectedBrief, setSelectedBrief] = useState(briefs[0]?.id ?? "");
+  const selectedBriefItem = briefs.find((brief) => brief.id === selectedBrief) ?? briefs[0] ?? null;
 
   return (
     <>
@@ -237,14 +238,34 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
             {briefs.length > 0 ? (
               <form action={generatePlanTrabajoDraft} className="space-y-3">
                 <input type="hidden" name="empresa_id" value={empresaId} />
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
-                  <div className="space-y-1.5">
-                    <label className="block text-[11px] font-medium text-white/30 pl-0.5">Brief base</label>
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-[0.12em] text-white/32">
+                          Brief base
+                        </label>
+                        <p className="mt-1 text-[12px] leading-relaxed text-white/30">
+                          Selecciona el brief que servira como base estrategica y operativa para el plan.
+                        </p>
+                      </div>
+                      {selectedBriefItem ? (
+                        <div className="rounded-xl border border-violet-400/20 bg-violet-400/10 px-3 py-2 text-right">
+                          <p className="text-[10px] uppercase tracking-[0.12em] text-violet-200/70">
+                            Seleccionado
+                          </p>
+                          <p className="mt-1 text-[12px] font-semibold capitalize text-violet-100">
+                            {fmtPeriodo(selectedBriefItem.periodo)}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+
                     <select
                       name="brief_id"
                       value={selectedBrief}
                       onChange={(e) => setSelectedBrief(e.target.value)}
-                      className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-white/75 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm text-white/80 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
                       style={{ fontFamily: "inherit" }}
                       required
                     >
@@ -254,23 +275,47 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                         </option>
                       ))}
                     </select>
+                    {selectedBriefItem ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-white/8 bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium capitalize text-white/55">
+                          {selectedBriefItem.estado}
+                        </span>
+                        <span className="rounded-full border border-white/8 bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-white/45">
+                          v{selectedBriefItem.version}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-[11px] font-medium text-white/30 pl-0.5">
-                      PDF de apoyo
+
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.025] p-4">
+                    <label className="block text-[11px] font-bold uppercase tracking-[0.12em] text-white/32">
+                      Documento de apoyo
                     </label>
+                    <p className="mt-1 text-[12px] leading-relaxed text-white/30">
+                      Adjunta contexto adicional para afinar el plan: brief comercial, pauta, promos o lineamientos.
+                    </p>
                     <input
                       type="file"
                       name="support_file"
                       accept=".pdf,.txt,.md,.csv,.json,.html,.xml,.docx,.xlsx"
-                      className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-xs text-white/60 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white/75"
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3 py-3 text-xs text-white/60 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/15 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-violet-100"
                     />
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {["PDF", "DOCX", "XLSX", "TXT", "MD"].map((label) => (
+                        <span
+                          key={label}
+                          className="rounded-full border border-white/8 bg-white/[0.03] px-2 py-1 text-[10px] font-medium text-white/38"
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <p className="text-[11px] text-white/28">
-                  Opcional. Sube un PDF o documento con informacion comercial, estrategia o referencias para que la IA lo use en esta generacion.
-                </p>
+                <div className="rounded-xl border border-violet-400/12 bg-violet-400/6 px-4 py-3 text-[11px] leading-relaxed text-white/40">
+                  La IA combinara el brief seleccionado con el BEC, contexto documental de empresa/agencia y el archivo adjunto si existe.
+                </div>
 
                 <div className="sm:self-end">
                   <GenerateButton />

@@ -314,14 +314,14 @@ export default function DashboardClient({
                 <input
                   type="file"
                   name="file"
-                  accept=".txt,.md,.csv,.json,.html,.xml,.pdf,.docx,.xlsx"
+                  accept=".txt,.md,.csv,.json,.html,.xml,.pdf,.docx,.pptx,.xlsx"
                   className="hidden"
                 />
               </label>
               <textarea
                 name="raw_text"
                 rows={5}
-                placeholder="Contenido del documento (opcional si adjuntas archivo)"
+                placeholder="Contenido del documento transcrito (opcional si adjuntas archivo)"
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-3 text-sm text-white/80 placeholder-white/20 outline-none transition focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20"
               />
               <div className="flex justify-end">

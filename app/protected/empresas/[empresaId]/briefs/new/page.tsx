@@ -43,11 +43,15 @@ export default async function NewBriefPage({ params }: NewBriefPageProps) {
     notFound();
   }
 
+  const baseDate = new Date();
+  const nextMonthDate = new Date(
+    Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth() + 1, 1),
+  );
   const initialPeriodo = new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
     month: "2-digit",
     timeZone: "UTC",
-  }).format(new Date());
+  }).format(nextMonthDate);
 
   return (
     <div className="min-h-screen bg-[#0c0c0f] px-5 py-10 text-white">

@@ -34,7 +34,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${spaceGrotesk.variable} ${geistSans.className} app-shell antialiased`}>
         <div className="app-background" aria-hidden="true">
           <div className="app-background__grid" />
@@ -44,8 +44,9 @@ export default function RootLayout({
         </div>
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          defaultTheme="dark"
+          forcedTheme="dark"
+          enableSystem={false}
           disableTransitionOnChange
         >
           {children}

@@ -30,6 +30,7 @@ export async function POST(request: Request, { params }: Params) {
   const body = (await request.json().catch(() => ({}))) as {
     company?: Partial<CompanyForm>;
     bec?: unknown;
+    prompt?: string;
   };
 
   const { data: appUser } = await supabase
@@ -120,7 +121,15 @@ export async function POST(request: Request, { params }: Params) {
 
   const metadataContext = JSON.stringify(metadata, null, 2).slice(0, 8000);
   const monthlyDeliverables = deriveMonthlyDeliverablesFromMetadata(metadata);
-  const prompt = buildPromptBEC(company, docContext, metadataContext, monthlyDeliverables);
+  const current = loadBECState(body.bec);
+  const prompt = buildPromptBEC(
+    company,
+    docContext,
+    metadataContext,
+    monthlyDeliverables,
+    current,
+    body.prompt,
+  );
   const systemPrompt = [
     "Eres estratega senior de marketing para agencias. Responde siguiendo exactamente el formato solicitado.",
     becPrompt?.prompt_text?.trim()
@@ -134,7 +143,6 @@ export async function POST(request: Request, { params }: Params) {
     temperature: 0.25,
   });
 
-  const current = loadBECState(body.bec);
   const generated = mapAnswerToBec(answer, current);
 
   if (monthlyDeliverables) {
