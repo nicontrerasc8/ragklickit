@@ -28,7 +28,9 @@ export type PlanTrabajo = {
   periodo: {
     inicio: string;
     fin: string;
+    
   };
+
   comunidad: ComunidadMetrica[];
   resumen_actualizaciones: {
     gestion_redes: string;
