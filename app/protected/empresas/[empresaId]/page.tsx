@@ -159,7 +159,7 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
       <section className="rounded-lg border p-5 space-y-4">
         <h2 className="text-lg font-semibold">Documentos de la empresa</h2>
         <p className="text-sm text-muted-foreground">
-          Sube archivos o pega texto manual para guardar la transcripcion literal de esta empresa.
+          Pega aqui el texto ya resumido. Se guardara tal cual en la base de datos y la IA no lo reescribira.
         </p>
 
         <form action={createEmpresaDocument} className="grid gap-3 rounded-md border p-4">
@@ -178,21 +178,16 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
               className="w-full rounded-md border bg-background px-3 py-2 text-sm"
             />
           </div>
-          <input
-            type="file"
-            name="file"
-            accept=".txt,.md,.csv,.json,.html,.xml,.docx,.pptx,.xlsx"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-          />
           <textarea
             name="raw_text"
-            rows={5}
-            placeholder="Contenido del documento transcrito (opcional si subes archivo)"
+            rows={8}
+            placeholder="Pega aqui el texto final que quieres guardar exactamente como esta"
+            required
             className="w-full rounded-md border bg-background px-3 py-2 text-sm"
           />
           <div>
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-              Guardar documento
+              Guardar texto
             </button>
           </div>
         </form>

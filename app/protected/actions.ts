@@ -1770,21 +1770,13 @@ export async function createAgenciaDocument(formData: FormData) {
   const title = String(formData.get("title") ?? "").trim();
   const rawTextInput = sanitizeStoredText(String(formData.get("raw_text") ?? ""));
   const docType = String(formData.get("doc_type") ?? "manual").trim() || "manual";
-  const uploadedFile = formData.get("file");
 
   if (!title) {
     return;
   }
 
-  let rawText = rawTextInput;
-
-  if (!rawText && uploadedFile instanceof File && uploadedFile.size > 0) {
-    const extracted = await extractSupportedDocumentText(uploadedFile);
-    rawText = extracted.rawText;
-  }
-
-  if (!rawText) {
-    throw new Error("Debes subir un archivo o pegar contenido manual.");
+  if (!rawTextInput) {
+    throw new Error("Debes pegar el texto resumido que se guardara directamente en la base de datos.");
   }
 
   const { error } = await supabase.from("kb_documents").insert({
@@ -1794,7 +1786,7 @@ export async function createAgenciaDocument(formData: FormData) {
     scope: "org",
     doc_type: docType,
     title,
-    raw_text: rawText,
+    raw_text: rawTextInput,
   });
 
   if (error) {

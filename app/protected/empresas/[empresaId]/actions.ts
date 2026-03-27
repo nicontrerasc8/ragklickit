@@ -2,13 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { inflateRawSync } from "node:zlib";
 
 import { createClient } from "@/lib/supabase/server";
-
-function decodeUtf8(bytes: Uint8Array) {
-  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-}
 
 function sanitizeStoredText(value: string) {
   return value
@@ -17,225 +12,6 @@ function sanitizeStoredText(value: string) {
     .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
     .replace(/\r\n/g, "\n")
     .trim();
-}
-
-function xmlToText(xml: string) {
-  return xml
-    .replace(/<w:tab\/>/g, " ")
-    .replace(/<w:br\/>/g, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-type ZipEntry = {
-  name: string;
-  compressionMethod: number;
-  compressedSize: number;
-  localHeaderOffset: number;
-};
-
-function readZipEntries(buffer: Uint8Array): ZipEntry[] {
-  const dv = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  const eocdSig = 0x06054b50;
-  const cdfhSig = 0x02014b50;
-  const lfhSig = 0x04034b50;
-
-  let eocdOffset = -1;
-  const minOffset = Math.max(0, buffer.length - 65557);
-  for (let i = buffer.length - 22; i >= minOffset; i--) {
-    if (dv.getUint32(i, true) === eocdSig) {
-      eocdOffset = i;
-      break;
-    }
-  }
-
-  if (eocdOffset < 0) return [];
-
-  const totalEntries = dv.getUint16(eocdOffset + 10, true);
-  const centralDirOffset = dv.getUint32(eocdOffset + 16, true);
-  const entries: ZipEntry[] = [];
-
-  let ptr = centralDirOffset;
-  for (let i = 0; i < totalEntries; i++) {
-    if (dv.getUint32(ptr, true) !== cdfhSig) break;
-
-    const compressionMethod = dv.getUint16(ptr + 10, true);
-    const compressedSize = dv.getUint32(ptr + 20, true);
-    const fileNameLength = dv.getUint16(ptr + 28, true);
-    const extraLength = dv.getUint16(ptr + 30, true);
-    const commentLength = dv.getUint16(ptr + 32, true);
-    const localHeaderOffset = dv.getUint32(ptr + 42, true);
-    const fileNameBytes = buffer.slice(ptr + 46, ptr + 46 + fileNameLength);
-    const name = decodeUtf8(fileNameBytes);
-
-    if (dv.getUint32(localHeaderOffset, true) === lfhSig) {
-      entries.push({
-        name,
-        compressionMethod,
-        compressedSize,
-        localHeaderOffset,
-      });
-    }
-
-    ptr += 46 + fileNameLength + extraLength + commentLength;
-  }
-
-  return entries;
-}
-
-function extractZipEntry(buffer: Uint8Array, entry: ZipEntry): Uint8Array | null {
-  const dv = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  const local = entry.localHeaderOffset;
-  const fileNameLength = dv.getUint16(local + 26, true);
-  const extraLength = dv.getUint16(local + 28, true);
-  const dataOffset = local + 30 + fileNameLength + extraLength;
-  const compressed = buffer.slice(dataOffset, dataOffset + entry.compressedSize);
-
-  if (entry.compressionMethod === 0) return compressed;
-  if (entry.compressionMethod === 8) return inflateRawSync(compressed);
-  return null;
-}
-
-function extractDocxText(bytes: Uint8Array) {
-  const entries = readZipEntries(bytes);
-  const doc = entries.find((entry) => entry.name === "word/document.xml");
-  if (!doc) return "";
-  const data = extractZipEntry(bytes, doc);
-  if (!data) return "";
-  return xmlToText(decodeUtf8(data));
-}
-
-function extractPptxText(bytes: Uint8Array) {
-  const entries = readZipEntries(bytes);
-  const slideEntries = entries
-    .filter((entry) => /^ppt\/slides\/slide\d+\.xml$/.test(entry.name))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-
-  const slides: string[] = [];
-  for (const entry of slideEntries) {
-    const data = extractZipEntry(bytes, entry);
-    if (!data) continue;
-
-    const xml = decodeUtf8(data);
-    const matches = xml.match(/<a:t>([\s\S]*?)<\/a:t>/g) ?? [];
-    const texts = matches
-      .map((match) => match.replace(/<\/?a:t>/g, "").trim())
-      .filter(Boolean);
-
-    if (texts.length > 0) {
-      slides.push(texts.join(" "));
-    }
-  }
-
-  return slides.join("\n\n").replace(/[ \t]+/g, " ").trim();
-}
-
-function extractXlsxText(bytes: Uint8Array) {
-  const entries = readZipEntries(bytes);
-  const sharedEntry = entries.find((entry) => entry.name === "xl/sharedStrings.xml");
-  const sheetEntries = entries.filter((entry) => /^xl\/worksheets\/sheet\d+\.xml$/.test(entry.name));
-
-  const sharedStrings: string[] = [];
-  if (sharedEntry) {
-    const sharedData = extractZipEntry(bytes, sharedEntry);
-    if (sharedData) {
-      const xml = decodeUtf8(sharedData);
-      const matches = xml.match(/<t[^>]*>([\s\S]*?)<\/t>/g) ?? [];
-      for (const match of matches) {
-        sharedStrings.push(match.replace(/<[^>]+>/g, "").trim());
-      }
-    }
-  }
-
-  const rows: string[] = [];
-  for (const entry of sheetEntries) {
-    const sheetData = extractZipEntry(bytes, entry);
-    if (!sheetData) continue;
-
-    const xml = decodeUtf8(sheetData);
-    const rowMatches = xml.match(/<row[\s\S]*?<\/row>/g) ?? [];
-
-    for (const rowXml of rowMatches) {
-      const cellMatches = rowXml.match(/<c[\s\S]*?<\/c>/g) ?? [];
-      const cellValues: string[] = [];
-
-      for (const cell of cellMatches) {
-        const isShared = / t=\"s\"/.test(cell);
-        const isInline = / t=\"inlineStr\"/.test(cell);
-
-        let value = "";
-        if (isInline) {
-          const inlineMatch = cell.match(/<t[^>]*>([\s\S]*?)<\/t>/);
-          value = inlineMatch?.[1]?.trim() ?? "";
-        } else {
-          const valueMatch = cell.match(/<v>([\s\S]*?)<\/v>/);
-          const raw = valueMatch?.[1]?.trim() ?? "";
-          if (!raw) continue;
-          if (isShared) {
-            value = sharedStrings[Number(raw)] ?? raw;
-          } else {
-            value = raw;
-          }
-        }
-
-        if (value) {
-          cellValues.push(value);
-        }
-      }
-
-      if (cellValues.length > 0) {
-        rows.push(cellValues.join(" | "));
-      }
-    }
-  }
-
-  return rows.join("\n").replace(/[ \t]+/g, " ").trim();
-}
-
-async function extractSupportedDocumentText(uploadedFile: File) {
-  const fileName = uploadedFile.name || "documento";
-  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
-  const supportedExtensions = new Set([
-    "txt",
-    "md",
-    "csv",
-    "json",
-    "html",
-    "xml",
-    "docx",
-    "pptx",
-    "xlsx",
-  ]);
-
-  if (!supportedExtensions.has(extension)) {
-    throw new Error(
-      "Formato no soportado para lectura automatica. Usa txt, md, csv, json, html, xml, docx, pptx o xlsx.",
-    );
-  }
-
-  const bytes = new Uint8Array(await uploadedFile.arrayBuffer());
-  let rawText = "";
-
-  if (["txt", "md", "csv", "json", "html", "xml"].includes(extension)) {
-    rawText = decodeUtf8(bytes).trim();
-  } else if (extension === "docx") {
-    rawText = extractDocxText(bytes);
-  } else if (extension === "pptx") {
-    rawText = extractPptxText(bytes);
-  } else if (extension === "xlsx") {
-    rawText = extractXlsxText(bytes);
-  }
-
-  rawText = sanitizeStoredText(rawText);
-  if (!rawText) {
-    throw new Error("No se pudo extraer texto del archivo. Puedes probar con otro PDF o pegar el contenido como documento.");
-  }
-
-  return {
-    fileName,
-    rawText,
-  };
 }
 
 function parseAlcanceCalendario(raw: string) {
@@ -395,7 +171,6 @@ export async function createEmpresaDocument(formData: FormData) {
   const title = String(formData.get("title") ?? "").trim();
   const rawTextInput = sanitizeStoredText(String(formData.get("raw_text") ?? ""));
   const docType = String(formData.get("doc_type") ?? "manual").trim() || "manual";
-  const uploadedFile = formData.get("file");
 
   if (!empresaId || !title) {
     return;
@@ -412,46 +187,18 @@ export async function createEmpresaDocument(formData: FormData) {
     throw new Error("Empresa no encontrada o sin acceso.");
   }
 
-  let rawText = rawTextInput;
-  let empresaFileId: string | null = null;
-
-  if (!rawText && uploadedFile instanceof File && uploadedFile.size > 0) {
-    const extracted = await extractSupportedDocumentText(uploadedFile);
-    rawText = extracted.rawText;
-
-    const { data: empresaFile, error: fileError } = await supabase
-      .from("empresa_file")
-      .insert({
-        agencia_id: agenciaId,
-        empresa_id: empresaId,
-        nombre: extracted.fileName,
-        mime_type: uploadedFile.type || null,
-        file_size_bytes: uploadedFile.size,
-        estado: "procesado",
-        texto_extraido: rawText,
-      })
-      .select("id")
-      .single();
-
-    if (fileError) {
-      throw new Error(`No se pudo registrar archivo: ${fileError.message}`);
-    }
-
-    empresaFileId = empresaFile.id;
-  }
-
-  if (!rawText) {
-    throw new Error("Debes subir un archivo o pegar contenido manual.");
+  if (!rawTextInput) {
+    throw new Error("Debes pegar el texto resumido que se guardara directamente en la base de datos.");
   }
 
   const { error } = await supabase.from("kb_documents").insert({
     agencia_id: agenciaId,
     empresa_id: empresaId,
-    empresa_file_id: empresaFileId,
+    empresa_file_id: null,
     scope: "org",
     doc_type: docType,
     title,
-    raw_text: rawText,
+    raw_text: rawTextInput,
   });
 
   if (error) {

@@ -22,7 +22,6 @@ import {
   Save,
   Sparkles,
   Trash2,
-  Upload,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -74,7 +73,7 @@ const PROMPT_TYPES: PromptTypeCard[] = [
   {
     key: "bec",
     label: "BEC",
-    description: "Base estratégica de comunicación",
+    description: "Base estratégica de cliente",
     icon: BookOpen,
     accent: "border-amber-500/20 hover:border-amber-500/50",
     accentText: "text-amber-400",
@@ -275,10 +274,10 @@ export default function DashboardClient({
             {/* What to upload */}
             <div className="space-y-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
               <p className="text-xs font-semibold uppercase tracking-widest text-white/30">
-                Qué subir aquí
+                Qué pegar aquí
               </p>
               <ul className="space-y-2">
-                {["Manuales de marca o tono", "Metodologías internas", "Plantillas de propuesta", "FAQs y criterios"].map(
+                {["Resúmenes de marca o tono", "Metodologías internas resumidas", "Plantillas clave", "FAQs y criterios"].map(
                   (item) => (
                     <li key={item} className="flex items-center gap-2 text-xs text-white/40">
                       <span className="h-px w-3 bg-amber-500/40" />
@@ -308,26 +307,20 @@ export default function DashboardClient({
                   className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 text-sm text-white/80 placeholder-white/20 outline-none transition focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20"
                 />
               </div>
-              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-3 text-xs text-white/30 transition hover:border-amber-500/20 hover:text-white/50">
-                <Upload size={14} className="text-amber-500/50" />
-                Adjuntar archivo compatible
-                <input
-                  type="file"
-                  name="file"
-                  accept=".txt,.md,.csv,.json,.html,.xml,.docx,.pptx,.xlsx"
-                  className="hidden"
-                />
-              </label>
+              <p className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-xs leading-relaxed text-white/35">
+                Pega aquí texto ya resumido. Se guardará tal cual en la base de datos y la IA no lo reescribirá.
+              </p>
               <textarea
                 name="raw_text"
-                rows={5}
-                placeholder="Contenido del documento transcrito (opcional si adjuntas archivo)"
+                rows={6}
+                required
+                placeholder="Pega aquí el texto final que quieres guardar exactamente como está"
                 className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-3 text-sm text-white/80 placeholder-white/20 outline-none transition focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20"
               />
               <div className="flex justify-end">
                 <button className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-xs font-semibold text-black transition hover:bg-amber-400 active:scale-95">
                   <Save size={12} />
-                  Guardar documento
+                  Guardar texto
                 </button>
               </div>
             </form>
