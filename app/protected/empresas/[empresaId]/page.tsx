@@ -159,7 +159,7 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
       <section className="rounded-lg border p-5 space-y-4">
         <h2 className="text-lg font-semibold">Documentos de la empresa</h2>
         <p className="text-sm text-muted-foreground">
-          Pega aqui el texto ya resumido. Se guardara tal cual en la base de datos y la IA no lo reescribira.
+          Sube un archivo y el sistema extraera el texto literalmente, sin IA ni reescritura.
         </p>
 
         <form action={createEmpresaDocument} className="grid gap-3 rounded-md border p-4">
@@ -167,27 +167,29 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
           <div className="grid gap-3 md:grid-cols-2">
             <input
               name="title"
-              placeholder="Titulo del documento"
-              required
+              placeholder="Titulo opcional"
               className="w-full rounded-md border bg-background px-3 py-2 text-sm"
             />
             <input
               name="doc_type"
-              defaultValue="manual"
+              defaultValue="archivo"
               placeholder="Tipo (manual, brief, bec, etc)"
               className="w-full rounded-md border bg-background px-3 py-2 text-sm"
             />
           </div>
-          <textarea
-            name="raw_text"
-            rows={8}
-            placeholder="Pega aqui el texto final que quieres guardar exactamente como esta"
+          <input
+            type="file"
+            name="file"
             required
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            accept=".txt,.md,.csv,.json,.html,.xml,.docx,.pptx,.xlsx"
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-foreground"
           />
+          <p className="text-xs text-muted-foreground">
+            Formatos soportados: TXT, MD, CSV, JSON, HTML, XML, DOCX, PPTX y XLSX. Si no defines titulo, se usa el nombre del archivo.
+          </p>
           <div>
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-              Guardar texto
+              Subir archivo
             </button>
           </div>
         </form>

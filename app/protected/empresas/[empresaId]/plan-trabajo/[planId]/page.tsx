@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { updateArtifactApproval } from "@/app/protected/actions";
+import { generatePlanTrabajoDraft, updateArtifactApproval } from "@/app/protected/actions";
 import { createClient } from "@/lib/supabase/server";
 import PlanTrabajoEditor from "@/app/protected/empresas/[empresaId]/plan-trabajo/PlanTrabajoEditor";
 import { groupEntityScores } from "@/lib/rag/scoring";
@@ -43,7 +43,7 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
       .maybeSingle(),
     supabase
       .from("rag_artifacts")
-      .select("id, title, status, version, content_json, updated_at")
+      .select("id, title, status, version, content_json, inputs_json, updated_at")
       .eq("id", planId)
       .eq("artifact_type", "plan_trabajo")
       .eq("empresa_id", empresaId)
@@ -61,6 +61,13 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
   }
 
   const initiativeScores = groupEntityScores(scoreRows ?? []);
+  const planInputs =
+    plan.inputs_json && typeof plan.inputs_json === "object"
+      ? (plan.inputs_json as Record<string, unknown>)
+      : {};
+  const sourceBriefId = typeof planInputs.brief_id === "string" ? planInputs.brief_id : "";
+  const previousCreativePrompt =
+    typeof planInputs.custom_prompt === "string" ? planInputs.custom_prompt : "";
   const workflow = readWorkflow(plan.content_json);
   const approvalState = workflow?.approval.state ?? "pending";
   const artifactStatusLabel = plan.status.replaceAll("_", " ");
@@ -197,6 +204,32 @@ export default async function PlanTrabajoDetailPage({ params }: PageProps) {
 
           
               </div>
+
+              {sourceBriefId ? (
+                <form action={generatePlanTrabajoDraft} className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <input type="hidden" name="empresa_id" value={empresaId} />
+                  <input type="hidden" name="brief_id" value={sourceBriefId} />
+                  <input type="hidden" name="redirect_to" value={`/protected/empresas/${empresaId}/plan-trabajo/${plan.id}`} />
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">
+                      Regenerar con IA
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-white/50">
+                      Puedes dar una instruccion creativa nueva para regenerar este plan usando el mismo brief base.
+                    </p>
+                  </div>
+                  <textarea
+                    name="custom_prompt"
+                    rows={4}
+                    defaultValue={previousCreativePrompt}
+                    placeholder="Ej: dale un tono mas premium y comercial, con mas foco en objeciones, prueba social y piezas adaptables a pauta."
+                    className="w-full rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/85 placeholder:text-white/20 outline-none transition focus:border-violet-400/40"
+                  />
+                  <button className="rounded-xl border border-violet-400/25 bg-violet-400/12 px-3 py-2 text-xs font-semibold text-violet-100 transition-colors hover:bg-violet-400/20">
+                    Regenerar plan con IA
+                  </button>
+                </form>
+              ) : null}
             </div>
           </div>
 

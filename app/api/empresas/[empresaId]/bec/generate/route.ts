@@ -132,13 +132,20 @@ export async function POST(request: Request, { params }: Params) {
   );
   const systemPrompt = [
     "Eres estratega senior de marketing para agencias. Responde siguiendo exactamente el formato solicitado.",
+    'Para "Objetivo SMART 1", "Objetivo SMART 2", "KPI Primario", "KPI Secundario" y "Métrica de Éxito / ROI Esperado": no inventes metas, porcentajes, umbrales, ROI ni KPIs. Si no hay evidencia suficiente, escribe exactamente: "Pendiente de validar con cliente segun metadata_json y contexto actual."',
+    'En "Pilares de Comunicacion", "Canales Principales" y "Formatos Clave" deben salir solo de la marca, del contexto documental conocido, del BEC actual y de "Entregables Mensuales" / cuantificacion estandar. No inventes canales, formatos, piezas ni mixes nuevos. Si no hay evidencia suficiente para un canal o formato, escribe exactamente: "Pendiente de validar con cliente segun metadata_json y contexto actual."',
     becPrompt?.prompt_text?.trim()
       ? `PROMPT_BEC_AGENCIA (v${becPrompt.version ?? 1}):\n${becPrompt.prompt_text.trim()}`
       : "No hay prompt BEC personalizado de agencia.",
   ].join("\n\n");
 
-  const answer = await aiChat({
+  const strictMetricRule = [
     systemPrompt,
+    'Regla adicional: "Métrica de Éxito / ROI Esperado" debe definirse segun el "KPI Primario" y no como porcentaje por defecto, salvo que la evidencia lo exija explicitamente.',
+  ].join("\n\n");
+
+  const answer = await aiChat({
+    systemPrompt: strictMetricRule,
     userPrompt: prompt,
     temperature: 0.25,
   });

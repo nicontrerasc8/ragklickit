@@ -140,6 +140,7 @@ function PlanLinkButton({
 
 export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, planes }: Props) {
   const [selectedBrief, setSelectedBrief] = useState(briefs[0]?.id ?? "");
+  const [creativePrompt, setCreativePrompt] = useState("");
   const selectedBriefItem = briefs.find((brief) => brief.id === selectedBrief) ?? briefs[0] ?? null;
 
   return (
@@ -238,6 +239,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
             {briefs.length > 0 ? (
               <form action={generatePlanTrabajoDraft} className="space-y-3">
                 <input type="hidden" name="empresa_id" value={empresaId} />
+                <input type="hidden" name="redirect_to" value={`/protected/empresas/${empresaId}/plan-trabajo`} />
                 <div className="space-y-3">
                   <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
                     <div className="flex items-center justify-between gap-3">
@@ -311,10 +313,27 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                       ))}
                     </div>
                   </div>
+
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <label className="block text-[11px] font-bold uppercase tracking-[0.12em] text-white/32">
+                      Instrucciones creativas
+                    </label>
+                    <p className="mt-1 text-[12px] leading-relaxed text-white/30">
+                      Dale direccion adicional a la IA: enfoque narrativo, angulos, tono, prioridades comerciales o restricciones creativas para este plan.
+                    </p>
+                    <textarea
+                      name="custom_prompt"
+                      rows={5}
+                      value={creativePrompt}
+                      onChange={(e) => setCreativePrompt(e.target.value)}
+                      placeholder="Ej: prioriza una narrativa mas aspiracional, con foco en prueba social, objeciones de compra y piezas que puedan escalarse a pauta."
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
+                    />
+                  </div>
                 </div>
 
                 <div className="rounded-xl border border-violet-400/12 bg-violet-400/6 px-4 py-3 text-[11px] leading-relaxed text-white/40">
-                  La IA combinara el brief seleccionado con el BEC, contexto documental de empresa/agencia y el archivo adjunto si existe.
+                  La IA combinara el brief seleccionado con el BEC, contexto documental de empresa/agencia, las instrucciones creativas y el archivo adjunto si existe.
                 </div>
 
                 <div className="sm:self-end">

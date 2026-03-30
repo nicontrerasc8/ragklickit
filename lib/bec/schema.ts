@@ -71,6 +71,41 @@ export type BECState = {
   pilares: BECPillarRow[];
 };
 
+const BEC_PENDING_VALIDATION =
+  "Pendiente de validar con cliente segun metadata_json y contexto actual.";
+
+const STRICT_BEC_KPI_FIELDS: BECFieldKey[] = [
+  "Objetivo SMART 1",
+  "Objetivo SMART 2",
+  "KPI Primario",
+  "KPI Secundario",
+  "Métrica de Éxito / ROI Esperado",
+];
+
+function sanitizeStrictBecField(key: BECFieldKey, value: string) {
+  const trimmed = value.trim();
+  if (!STRICT_BEC_KPI_FIELDS.includes(key)) {
+    return trimmed;
+  }
+
+  if (!trimmed) {
+    return BEC_PENDING_VALIDATION;
+  }
+
+  const normalized = trimmed.toLowerCase();
+  if (
+    normalized.includes("supuesto:") ||
+    normalized.includes("por definir") ||
+    normalized.includes("por confirmar") ||
+    normalized.includes("por validar") ||
+    normalized.includes("pendiente")
+  ) {
+    return BEC_PENDING_VALIDATION;
+  }
+
+  return trimmed;
+}
+
 export type BECSectionRow =
   | { kind: "field"; key: BECFieldKey; desc: string; example: string }
   | { kind: "pillars" };
@@ -117,11 +152,11 @@ export const BEC_TEMPLATE: BECSection[] = [
   {
     title: "3. Objetivos Estrategicos y KPIs",
     rows: [
-      { kind: "field", key: "Objetivo SMART 1", desc: "Primer objetivo medible", example: "Aumentar leads 30%..." },
+      { kind: "field", key: "Objetivo SMART 1", desc: "Primer objetivo medible", example: "Aumentar leads " },
       { kind: "field", key: "Objetivo SMART 2", desc: "Segundo objetivo", example: "Mejorar tasa de cierre..." },
       { kind: "field", key: "KPI Primario", desc: "Indicador central", example: "Leads calificados / CAC" },
       { kind: "field", key: "KPI Secundario", desc: "Indicador complementario", example: "CTR / CVR / ROAS" },
-      { kind: "field", key: "Métrica de Éxito / ROI Esperado", desc: "Como se mide exito", example: "ROAS > 3, CAC < X" },
+      { kind: "field", key: "Métrica de Éxito / ROI Esperado", desc: "Resultado esperado segun el KPI primario, no necesariamente en porcentaje", example: "CAC objetivo <= X segun el KPI primario definido" },
     ],
   },
   {
@@ -256,7 +291,7 @@ export function mapAnswerToBec(answer: string, base?: BECState): BECState {
   (Object.keys(nextFields) as BECFieldKey[]).forEach((key) => {
     const value = parsed.get(normalizeKey(key));
     if (value) {
-      nextFields[key] = value;
+      nextFields[key] = sanitizeStrictBecField(key, value);
     }
   });
 
@@ -293,7 +328,7 @@ export function loadBECState(input: unknown): BECState {
     for (const key of Object.keys(next.fields) as BECFieldKey[]) {
       const value = obj.fields[key];
       if (typeof value === "string") {
-        next.fields[key] = value;
+        next.fields[key] = sanitizeStrictBecField(key, value);
       }
     }
   }

@@ -135,7 +135,7 @@ export default function EmpresaDashboard({ empresa, bec, docsCount, abaSummary }
     {
       href: `/protected/empresas/${empresa.id}/bec`,
       label: "BEC",
-      description: "Base estrategica de comunicacion",
+      description: "Base estrategica de clientes",
       icon: BookOpen,
       color: "from-indigo-500/20 to-indigo-600/10 hover:from-indigo-500/30",
       iconColor: "text-indigo-400",

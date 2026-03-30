@@ -31,6 +31,7 @@ export function buildPlanTrabajoPrompt(params: {
   agenciaDocsContext: string;
   promptContext: string;
   defaultPlanTrabajo: PlanTrabajo;
+  creativeInstructions?: string;
 }) {
   return [
     `Construye un plan de trabajo mensual para ${params.periodo}.`,
@@ -67,6 +68,9 @@ export function buildPlanTrabajoPrompt(params: {
     "",
     "PROMPTS ACTIVOS:",
     params.promptContext || "Sin prompts activos",
+    "",
+    "INSTRUCCIONES CREATIVAS DEL USUARIO:",
+    params.creativeInstructions?.trim() || "Sin instrucciones creativas adicionales",
     "",
     ...premiumPlanningRules(),
     "",

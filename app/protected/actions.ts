@@ -610,6 +610,7 @@ async function upsertPlanTrabajoArtifact(params: {
   briefId: string;
   periodo: string;
   contenidoJson: unknown;
+  customPrompt?: string;
   modelUsed?: string;
   promptVersion?: string;
   status?: string;
@@ -620,12 +621,14 @@ async function upsertPlanTrabajoArtifact(params: {
     briefId,
     periodo,
     contenidoJson,
+    customPrompt,
     modelUsed,
     promptVersion,
     status = "plan",
   } = params;
   const supabase = await requireUser();
   const title = `Plan de trabajo ${periodo}`;
+  const inputsPayload = customPrompt ? { brief_id: briefId, periodo, custom_prompt: customPrompt } : { brief_id: briefId, periodo };
 
   const { data: existing, error: existingError } = await supabase
     .from("rag_artifacts")
@@ -647,7 +650,7 @@ async function upsertPlanTrabajoArtifact(params: {
         content_json: contenidoJson,
         status,
         version: (existing.version ?? 1) + 1,
-        inputs_json: { brief_id: briefId, periodo },
+        inputs_json: inputsPayload,
         model_used: modelUsed ?? null,
         prompt_version: promptVersion ?? null,
         updated_at: new Date().toISOString(),
@@ -668,7 +671,7 @@ async function upsertPlanTrabajoArtifact(params: {
     empresa_id: empresaId,
     title,
     status,
-    inputs_json: { brief_id: briefId, periodo },
+    inputs_json: inputsPayload,
     content_json: contenidoJson,
     model_used: modelUsed ?? null,
     prompt_version: promptVersion ?? null,
@@ -1767,17 +1770,17 @@ export async function createEmpresaDocument(formData: FormData) {
 
 export async function createAgenciaDocument(formData: FormData) {
   const { supabase, agenciaId } = await requireUserAgenciaContext();
-  const title = String(formData.get("title") ?? "").trim();
-  const rawTextInput = sanitizeStoredText(String(formData.get("raw_text") ?? ""));
-  const docType = String(formData.get("doc_type") ?? "manual").trim() || "manual";
+  const rawTitle = String(formData.get("title") ?? "").trim();
+  const docType = String(formData.get("doc_type") ?? "archivo").trim() || "archivo";
+  const uploadedFile = formData.get("file");
 
-  if (!title) {
-    return;
+  if (!(uploadedFile instanceof File) || uploadedFile.size <= 0) {
+    throw new Error("Debes subir un archivo para transcribirlo.");
   }
 
-  if (!rawTextInput) {
-    throw new Error("Debes pegar el texto resumido que se guardara directamente en la base de datos.");
-  }
+  const extracted = await extractSupportedDocumentText(uploadedFile);
+  const title =
+    rawTitle || extracted.fileName.replace(/\.[^.]+$/, "").trim() || "Documento de agencia";
 
   const { error } = await supabase.from("kb_documents").insert({
     agencia_id: agenciaId,
@@ -1786,7 +1789,7 @@ export async function createAgenciaDocument(formData: FormData) {
     scope: "org",
     doc_type: docType,
     title,
-    raw_text: rawTextInput,
+    raw_text: extracted.rawText,
   });
 
   if (error) {
@@ -2786,6 +2789,8 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const briefId = String(formData.get("brief_id") ?? "").trim();
   const supportFile = formData.get("support_file");
+  const customPrompt = String(formData.get("custom_prompt") ?? "").trim();
+  const redirectTo = String(formData.get("redirect_to") ?? "").trim();
 
   if (!empresaId || !briefId) {
     return;
@@ -2918,6 +2923,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
       agenciaDocsContext,
       promptContext,
       defaultPlanTrabajo,
+      creativeInstructions: customPrompt,
     }),
     temperature: 0.35,
   });
@@ -2951,6 +2957,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
     briefId: brief.id,
     periodo: brief.periodo,
     contenidoJson: contentJson,
+    customPrompt,
     modelUsed: getActiveTextModelLabel(),
     promptVersion: "plan_trabajo_v1",
   });
@@ -2990,7 +2997,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   });
 
   revalidateEmpresaRoutes(empresaId);
-  redirect(`/protected/empresas/${empresaId}/plan-trabajo`);
+  redirect(redirectTo || `/protected/empresas/${empresaId}/plan-trabajo`);
 }
 
 export async function generateCalendarioDraft(formData: FormData) {

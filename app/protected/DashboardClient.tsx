@@ -274,10 +274,10 @@ export default function DashboardClient({
             {/* What to upload */}
             <div className="space-y-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
               <p className="text-xs font-semibold uppercase tracking-widest text-white/30">
-                Qué pegar aquí
+                Qué archivos subir
               </p>
               <ul className="space-y-2">
-                {["Resúmenes de marca o tono", "Metodologías internas resumidas", "Plantillas clave", "FAQs y criterios"].map(
+                {["Briefs y manuales", "Metodologías internas", "Plantillas editables", "FAQs, criterios y reportes"].map(
                   (item) => (
                     <li key={item} className="flex items-center gap-2 text-xs text-white/40">
                       <span className="h-px w-3 bg-amber-500/40" />
@@ -296,31 +296,31 @@ export default function DashboardClient({
               <div className="grid gap-3 sm:grid-cols-2">
                 <input
                   name="title"
-                  placeholder="Título del documento"
-                  required
+                  placeholder="Título opcional"
                   className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 text-sm text-white/80 placeholder-white/20 outline-none transition focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20"
                 />
                 <input
                   name="doc_type"
-                  defaultValue="manual"
+                  defaultValue="archivo"
                   placeholder="Tipo de documento"
                   className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 text-sm text-white/80 placeholder-white/20 outline-none transition focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20"
                 />
               </div>
-              <p className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-xs leading-relaxed text-white/35">
-                Pega aquí texto ya resumido. Se guardará tal cual en la base de datos y la IA no lo reescribirá.
-              </p>
-              <textarea
-                name="raw_text"
-                rows={6}
+
+              <input
+                type="file"
+                name="file"
                 required
-                placeholder="Pega aquí el texto final que quieres guardar exactamente como está"
-                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-3 text-sm text-white/80 placeholder-white/20 outline-none transition focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20"
+                accept=".txt,.md,.csv,.json,.html,.xml,.docx,.pptx,.xlsx"
+                className="w-full rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3 text-sm text-white/70 file:mr-3 file:rounded-full file:border-0 file:bg-amber-500 file:px-4 file:py-2 file:text-xs file:font-semibold file:text-black hover:border-amber-500/30"
               />
+              <p className="text-[11px] leading-relaxed text-white/25">
+                Formatos soportados: TXT, MD, CSV, JSON, HTML, XML, DOCX, PPTX y XLSX.
+              </p>
               <div className="flex justify-end">
                 <button className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-xs font-semibold text-black transition hover:bg-amber-400 active:scale-95">
                   <Save size={12} />
-                  Guardar texto
+                  Subir archivo
                 </button>
               </div>
             </form>
