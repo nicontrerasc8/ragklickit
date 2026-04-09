@@ -311,11 +311,11 @@ export default function DashboardClient({
                 type="file"
                 name="file"
                 required
-                accept=".txt,.md,.csv,.json,.html,.xml,.docx,.pptx,.xlsx"
+                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 className="w-full rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3 text-sm text-white/70 file:mr-3 file:rounded-full file:border-0 file:bg-amber-500 file:px-4 file:py-2 file:text-xs file:font-semibold file:text-black hover:border-amber-500/30"
               />
               <p className="text-[11px] leading-relaxed text-white/25">
-                Formatos soportados: TXT, MD, CSV, JSON, HTML, XML, DOCX, PPTX y XLSX.
+                Formatos soportados: PDF y Word (.docx).
               </p>
               <div className="flex justify-end">
                 <button className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-xs font-semibold text-black transition hover:bg-amber-400 active:scale-95">

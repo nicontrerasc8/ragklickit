@@ -181,11 +181,11 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
             type="file"
             name="file"
             required
-            accept=".txt,.md,.csv,.json,.html,.xml,.docx,.pptx,.xlsx"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-foreground"
           />
           <p className="text-xs text-muted-foreground">
-            Formatos soportados: TXT, MD, CSV, JSON, HTML, XML, DOCX, PPTX y XLSX. Si no defines titulo, se usa el nombre del archivo.
+            Formatos soportados: PDF y Word (.docx). Si no defines titulo, se usa el nombre del archivo.
           </p>
           <div>
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">

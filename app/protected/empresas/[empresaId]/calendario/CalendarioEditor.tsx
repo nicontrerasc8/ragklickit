@@ -221,11 +221,11 @@ function ItemCard({ empresaId, calendarioId, item, scores, onUpdate, onRemove, o
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.025)", overflow: "hidden" }}>
+    <div style={{ borderRadius: 18, border: "1px solid rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.025)", overflow: "hidden" }}>
       {/* channel bar */}
       <div style={{ height: 3, background: `linear-gradient(90deg, ${s.dot}cc 0%, ${s.dot}20 100%)` }} />
 
-      <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
         {/* Badges row */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 8, border: `1px solid ${s.border}`, background: s.bg, color: s.text, padding: "4px 10px", fontSize: 11, fontWeight: 600 }}>
@@ -253,7 +253,7 @@ function ItemCard({ empresaId, calendarioId, item, scores, onUpdate, onRemove, o
         </div>
 
         {/* Canal + Formato */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
             <FieldLabel>Canal</FieldLabel>
             <select value={item.canal} onChange={(e) => onUpdate(item.id, { canal: e.target.value })} style={{ ...inputBase, appearance: "none" as const, cursor: "pointer" }}>
@@ -280,7 +280,7 @@ function ItemCard({ empresaId, calendarioId, item, scores, onUpdate, onRemove, o
           <input value={item.CTA} onChange={(e) => onUpdate(item.id, { CTA: e.target.value })} placeholder="Call to action" style={inputBase} />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <button
             type="button"
             onClick={() => onRegenerate(item)}
@@ -334,7 +334,7 @@ function ItemCard({ empresaId, calendarioId, item, scores, onUpdate, onRemove, o
         </button>
 
         {expanded && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {[
               { label: "Pilar", key: "pilar" as const, ph: "Pilar de contenido" },
               { label: "Tema", key: "tema" as const, ph: "Tema" },
@@ -350,7 +350,7 @@ function ItemCard({ empresaId, calendarioId, item, scores, onUpdate, onRemove, o
         )}
 
         {/* Footer: estado select + delete */}
-        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.05)", marginTop: 2 }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.05)", marginTop: 4 }}>
           <div>
             <FieldLabel>Estado</FieldLabel>
             <select value={item.estado} onChange={(e) => onUpdate(item.id, { estado: e.target.value as CalendarioItem["estado"] })}
@@ -392,11 +392,11 @@ function DayModal({ empresaId, calendarioId, date, items, itemScores, onClose, o
 
   const modal = (
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, background: "rgba(4,6,12,0.88)", backdropFilter: "blur(10px)" }}
+      style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 28, background: "rgba(4,6,12,0.88)", backdropFilter: "blur(10px)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{
-        position: "relative", width: "min(1400px, calc(100vw - 40px))", maxWidth: "none", maxHeight: "94vh",
+      <div className="day-modal-shell" style={{
+        position: "relative", maxWidth: "none", maxHeight: "94vh",
         display: "flex", flexDirection: "column",
         borderRadius: 24, border: "1px solid rgba(255,255,255,0.09)",
         background: "linear-gradient(160deg, rgba(12,15,24,0.99) 0%, rgba(8,10,18,0.99) 100%)",
@@ -408,7 +408,7 @@ function DayModal({ empresaId, calendarioId, date, items, itemScores, onClose, o
         <div style={{ position: "absolute", right: -80, top: -80, width: 280, height: 280, borderRadius: "50%", background: "radial-gradient(circle, rgba(56,189,248,0.07) 0%, transparent 70%)", filter: "blur(50px)", pointerEvents: "none" }} />
 
         {/* Header */}
-        <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "26px 32px 20px" }}>
+        <div className="day-modal-header" style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 18, borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "30px 40px 24px" }}>
           <div>
             <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(56,189,248,0.55)", marginBottom: 6 }}>Actividades del día</p>
             <h3 style={{ fontSize: 28, fontWeight: 600, letterSpacing: "-0.02em", color: "rgba(255,255,255,0.95)", textTransform: "capitalize", margin: 0 }}>{formatDayLabel(date)}</h3>
@@ -430,7 +430,7 @@ function DayModal({ empresaId, calendarioId, date, items, itemScores, onClose, o
         </div>
 
         {/* Channel legend strip */}
-        <div style={{ flexShrink: 0, display: "flex", flexWrap: "wrap", gap: "8px 18px", padding: "12px 32px", borderBottom: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.01)" }}>
+        <div className="day-modal-legend" style={{ flexShrink: 0, display: "flex", flexWrap: "wrap", gap: "10px 20px", padding: "14px 40px", borderBottom: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.01)" }}>
           {Object.entries(CHANNEL_STYLES).map(([canal, st]) => (
             <span key={canal} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "rgba(255,255,255,0.28)" }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: st.dot, display: "inline-block", flexShrink: 0 }} />{canal}
@@ -439,7 +439,7 @@ function DayModal({ empresaId, calendarioId, date, items, itemScores, onClose, o
         </div>
 
         {/* Scrollable items grid */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+        <div className="day-modal-body" style={{ flex: 1, overflowY: "auto", padding: "32px 40px 36px" }}>
           {items.length === 0 ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, borderRadius: 18, border: "1px dashed rgba(255,255,255,0.07)", padding: "64px 24px", textAlign: "center" }}>
               <div style={{ width: 48, height: 48, borderRadius: "50%", background: "radial-gradient(circle, rgba(56,189,248,0.1) 0%, transparent 70%)" }} />
@@ -449,7 +449,7 @@ function DayModal({ empresaId, calendarioId, date, items, itemScores, onClose, o
               </button>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 18, alignItems: "start" }}>
+            <div className="day-modal-items-grid">
               {items.map((item) => (
                 <ItemCard
                   key={item.id}
@@ -468,7 +468,7 @@ function DayModal({ empresaId, calendarioId, date, items, itemScores, onClose, o
         </div>
 
         {/* Footer */}
-        <div style={{ flexShrink: 0, borderTop: "1px solid rgba(255,255,255,0.055)", padding: "14px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div className="day-modal-footer" style={{ flexShrink: 0, borderTop: "1px solid rgba(255,255,255,0.055)", padding: "16px 40px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", margin: 0 }}>
             Clic fuera del modal o{" "}
             <kbd style={{ borderRadius: 5, border: "1px solid rgba(255,255,255,0.1)", padding: "2px 6px", fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.3)" }}>Esc</kbd>{" "}
@@ -672,6 +672,16 @@ export default function CalendarioEditor(props: Props) {
         .day-cell:hover .add-hover { opacity: 1; }
         .ev-pill { transition: transform 0.1s, filter 0.1s; }
         .ev-pill:hover { transform: translateY(-1px); filter: brightness(1.12); }
+        .day-modal-shell { width: min(1720px, calc(100vw - 56px)); }
+        .day-modal-items-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
+        @media (max-width: 1320px) {
+          .day-modal-shell { width: min(1240px, calc(100vw - 32px)); }
+          .day-modal-items-grid { grid-template-columns: 1fr; }
+          .day-modal-header { padding: 26px 28px 22px !important; }
+          .day-modal-legend { padding: 14px 28px !important; }
+          .day-modal-body { padding: 24px 28px 30px !important; }
+          .day-modal-footer { padding: 14px 28px !important; }
+        }
       `}</style>
 
       {popupDate && (
@@ -846,7 +856,7 @@ export default function CalendarioEditor(props: Props) {
           </div>
 
           {/* Cells */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gridAutoRows: "minmax(180px, auto)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gridAutoRows: "minmax(220px, auto)" }}>
             {gridCells.map((cell, idx) => {
               const isToday  = cell.date === todayStr;
               const dayItems = cell.date ? (itemsByDate.get(cell.date) ?? []) : [];
@@ -889,8 +899,8 @@ export default function CalendarioEditor(props: Props) {
                           : "transparent",
                     display: "flex",
                     flexDirection: "column",
-                    gap: 8,
-                    padding: "12px 10px 10px",
+                    gap: 10,
+                    padding: "14px 12px 12px",
                     transition: "background 0.12s",
                     userSelect: "none",
                     overflow: "hidden",
@@ -918,7 +928,7 @@ export default function CalendarioEditor(props: Props) {
                       </div>
 
                       {/* Evento pills */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {dayItems.slice(0, 6).map((item) => {
                           const s = getStyle(item.canal);
                           const scores = itemScores[item.id] ?? {};
@@ -939,14 +949,14 @@ export default function CalendarioEditor(props: Props) {
                               }}
                               style={{
                               display: "flex", alignItems: "center", gap: 8,
-                              height: 100,
-                              borderRadius: 12, padding: "10px 10px",
+                              minHeight: 92,
+                              borderRadius: 14, padding: "12px 12px",
                               fontSize: 12, fontWeight: 600,
                               background: s.bg, color: s.text, border: `1px solid ${s.border}`,
-                              overflow: "hidden", cursor: "grab", 
+                              overflow: "visible", cursor: "grab", 
                             }} title={`${item.canal}: ${item.titulo_base || item.tema || "Sin título"}`}>
                               <span style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot, flexShrink: 0 }} />
-                              <span style={{ flex: 1, minWidth: 0, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.35 }}>
+                              <span style={{ flex: 1, minWidth: 0, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.45 }}>
                                 {item.titulo_base || item.tema || item.canal}
                               </span>
                               {typeof scores.risk === "number" ? (

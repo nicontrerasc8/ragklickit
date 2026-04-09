@@ -241,10 +241,114 @@ function extractXlsxText(bytes: Uint8Array) {
   return rows.join("\n").replace(/[ \t]+/g, " ").trim();
 }
 
+async function extractPdfText(bytes: Uint8Array) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const pdfjsWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  if (!globalThis.pdfjsWorker) {
+    globalThis.pdfjsWorker = pdfjsWorker;
+  }
+
+  const { getDocument } = pdfjs;
+  const pdf = await getDocument({
+    data: bytes,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+  }).promise;
+
+  const pages: string[] = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const text = content.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (text) {
+      pages.push(text);
+    }
+  }
+
+  return pages.join("\n\n").trim();
+}
+
+async function transcribePdfWithOpenAI(fileName: string, bytes: Uint8Array) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    return "";
+  }
+
+  const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
+  const model = process.env.OPENAI_PDF_MODEL?.trim() || "gpt-4o-mini";
+
+  const response = await fetch(`${baseUrl}/responses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_file",
+              filename: fileName,
+              file_data: Buffer.from(bytes).toString("base64"),
+            },
+            {
+              type: "input_text",
+              text: [
+                "Transcribe este PDF a texto plano fiel al original.",
+                "Preserva encabezados, listas y saltos de seccion cuando sea posible.",
+                "No resumas, no traduzcas, no expliques y no agregues comentarios.",
+                "Devuelve solo la transcripcion.",
+              ].join(" "),
+            },
+          ],
+        },
+      ],
+      temperature: 0,
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Error al transcribir PDF con OpenAI (${response.status}): ${errorBody.slice(0, 300)}`);
+  }
+
+  const data = (await response.json()) as {
+    output_text?: string;
+    output?: Array<{
+      content?: Array<{
+        type?: string;
+        text?: string;
+      }>;
+    }>;
+  };
+
+  return (
+    data.output_text?.trim() ??
+    data.output
+      ?.flatMap((item) => item.content ?? [])
+      .filter((item) => item.type === "output_text" && typeof item.text === "string")
+      .map((item) => item.text?.trim() ?? "")
+      .join("\n")
+      .trim() ??
+    ""
+  );
+}
+
 async function extractSupportedDocumentText(uploadedFile: File) {
   const fileName = uploadedFile.name || "documento";
   const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
   const supportedExtensions = new Set([
+    "pdf",
     "txt",
     "md",
     "csv",
@@ -258,14 +362,19 @@ async function extractSupportedDocumentText(uploadedFile: File) {
 
   if (!supportedExtensions.has(extension)) {
     throw new Error(
-      "Formato no soportado para lectura automatica. Usa txt, md, csv, json, html, xml, docx, pptx o xlsx.",
+      "Formato no soportado para lectura automatica. Usa pdf, txt, md, csv, json, html, xml, docx, pptx o xlsx.",
     );
   }
 
   const bytes = new Uint8Array(await uploadedFile.arrayBuffer());
   let rawText = "";
 
-  if (["txt", "md", "csv", "json", "html", "xml"].includes(extension)) {
+  if (extension === "pdf") {
+    rawText = await extractPdfText(bytes);
+    if (rawText.replace(/\s+/g, "").length < 80) {
+      rawText = await transcribePdfWithOpenAI(fileName, bytes);
+    }
+  } else if (["txt", "md", "csv", "json", "html", "xml"].includes(extension)) {
     rawText = decodeUtf8(bytes).trim();
   } else if (extension === "docx") {
     rawText = extractDocxText(bytes);
@@ -277,6 +386,14 @@ async function extractSupportedDocumentText(uploadedFile: File) {
 
   rawText = sanitizeStoredText(rawText);
   if (!rawText) {
+    if (extension === "pdf") {
+      throw new Error(
+        process.env.OPENAI_API_KEY?.trim()
+          ? "No se pudo extraer ni transcribir el PDF. Prueba con otro archivo o revisa si el PDF esta protegido."
+          : "No se pudo extraer texto del PDF. El archivo parece escaneado o basado en imagen. Configura OPENAI_API_KEY para habilitar transcripcion OCR con IA.",
+      );
+    }
+
     throw new Error("No se pudo extraer texto del archivo. Puedes probar con otro PDF o pegar el contenido como documento.");
   }
 
@@ -1776,6 +1893,11 @@ export async function createAgenciaDocument(formData: FormData) {
 
   if (!(uploadedFile instanceof File) || uploadedFile.size <= 0) {
     throw new Error("Debes subir un archivo para transcribirlo.");
+  }
+
+  const extension = uploadedFile.name.split(".").pop()?.toLowerCase() ?? "";
+  if (!new Set(["pdf", "docx"]).has(extension)) {
+    throw new Error("Solo se permiten archivos PDF o Word (.docx) en este formulario.");
   }
 
   const extracted = await extractSupportedDocumentText(uploadedFile);

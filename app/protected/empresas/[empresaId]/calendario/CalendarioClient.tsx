@@ -62,6 +62,19 @@ const monthFormatter = new Intl.DateTimeFormat("es-PE", {
   timeZone: "UTC",
 });
 
+const DEFAULT_CALENDARIO_PROMPT = [
+  "Actua como planner editorial senior de Klickit: piensa a la vez como estratega, director creativo y trafficker.",
+  "No hagas un calendario generico ni de relleno. Quiero criterio, filo comercial y variedad real entre piezas.",
+  "Prioriza ideas con angulo claro: tension, objecion, prueba, deseo, contraste, insight, error comun, comparativa, mito vs realidad, caso puntual o escena real de decision.",
+  "Evita efemerides vacias, frases motivacionales blandas, tips obvios, titulares intercambiables y promos repetitivas.",
+  "Cada pieza debe tener una razon estrategica para existir y sentirse distinta dentro de la semana.",
+  "Distribuye con inteligencia entre awareness, consideracion, prueba, conversion y recordacion cuando aplique.",
+  "Si varias piezas caen en el mismo canal o formato, cambia el mecanismo narrativo, el hook, el CTA y la promesa.",
+  "Dale prioridad a ideas que un equipo creativo pueda producir bien y que un cliente perciba como trabajo premium, no como calendario escolar.",
+  "Cuando haya oportunidad, incorpora POV, datos, microhistorias, comparativas, objeciones de compra, errores evitables, rituales, simbolos culturales o decisiones inteligentes.",
+  "Si una idea suena correcta pero olvidable, reemplazala por una mas especifica, mas util y mas memorable.",
+].join("\n");
+
 function fmt(periodo: string) {
   try {
     return monthFormatter.format(new Date(`${periodo}T00:00:00.000Z`));
@@ -209,7 +222,7 @@ export default function CalendarioClient({
   calendarios,
 }: Props) {
   const [selectedPlan, setSelectedPlan] = useState(planes[0]?.id ?? "");
-  const [customPrompt, setCustomPrompt] = useState("");
+  const [customPrompt, setCustomPrompt] = useState(DEFAULT_CALENDARIO_PROMPT);
 
   return (
     <div
@@ -314,12 +327,12 @@ export default function CalendarioClient({
                 <textarea
                   value={customPrompt}
                   onChange={(e) => setCustomPrompt(e.target.value)}
-                  rows={4}
+                  rows={10}
                   placeholder="Ej: prioriza contenido mas educativo para LinkedIn, evita promos repetitivas y refuerza piezas de consideracion para leads frios."
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition-all resize-none"
                 />
                 <p className="mt-2 text-[11px] leading-relaxed text-white/30">
-                  Opcional. La IA usara esta indicacion adicional sin romper el alcance, el plan base ni las restricciones del calendario.
+                  Puedes editarlo o borrarlo. La IA usara esta direccion adicional sin romper el alcance, el plan base ni las restricciones del calendario.
                 </p>
               </div>
 
