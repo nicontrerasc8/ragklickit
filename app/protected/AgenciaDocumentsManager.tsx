@@ -20,6 +20,29 @@ type Props = {
   documents: DocumentItem[];
 };
 
+function formatCreatedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const datePart = new Intl.DateTimeFormat("es-PE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+
+  const timePart = new Intl.DateTimeFormat("es-PE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(date);
+
+  return `${datePart} ${timePart}`;
+}
+
 export default function AgenciaDocumentsManager({ documents }: Props) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -46,7 +69,7 @@ export default function AgenciaDocumentsManager({ documents }: Props) {
             <div>
               <p className="font-medium">{doc.title}</p>
               <p className="text-xs text-muted-foreground">
-                {doc.doc_type} - {new Date(doc.created_at).toLocaleString("es-PE")}
+                {doc.doc_type} - {formatCreatedAt(doc.created_at)}
               </p>
             </div>
             <div className="flex items-center gap-2">

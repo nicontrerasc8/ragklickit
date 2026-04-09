@@ -59,6 +59,7 @@ function decodeUtf8(bytes: Uint8Array) {
 function sanitizeStoredText(value: string) {
   return value
     .replace(/\u0000/g, "")
+    .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
     .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
     .replace(/\r\n/g, "\n")
@@ -262,11 +263,60 @@ async function extractPdfText(bytes: Uint8Array) {
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
-    const text = content.items
-      .map((item) => ("str" in item ? item.str : ""))
+    const positioned = content.items
+      .map((item) => {
+        if (!("str" in item)) {
+          return null;
+        }
+
+        const text = String(item.str ?? "").replace(/\s+/g, " ").trim();
+        if (!text) {
+          return null;
+        }
+
+        return {
+          text,
+          x: typeof item.transform?.[4] === "number" ? item.transform[4] : 0,
+          y: typeof item.transform?.[5] === "number" ? item.transform[5] : 0,
+          height: typeof item.height === "number" ? item.height : 0,
+          hasEOL: Boolean(item.hasEOL),
+        };
+      })
+      .filter((item): item is { text: string; x: number; y: number; height: number; hasEOL: boolean } => Boolean(item))
+      .sort((a, b) => {
+        if (Math.abs(b.y - a.y) > 3) {
+          return b.y - a.y;
+        }
+        return a.x - b.x;
+      });
+
+    const lines: Array<{ y: number; items: typeof positioned }> = [];
+    for (const item of positioned) {
+      const lastLine = lines.at(-1);
+      const tolerance = Math.max(4, item.height * 0.5);
+
+      if (!lastLine || Math.abs(lastLine.y - item.y) > tolerance) {
+        lines.push({ y: item.y, items: [item] });
+        continue;
+      }
+
+      lastLine.items.push(item);
+      if (item.hasEOL) {
+        lastLine.y = item.y;
+      }
+    }
+
+    const text = lines
+      .map((line) =>
+        line.items
+          .sort((a, b) => a.x - b.x)
+          .map((item) => item.text)
+          .join(" ")
+          .replace(/\s+([,.;:!?])/g, "$1")
+          .trim(),
+      )
       .filter(Boolean)
-      .join(" ")
-      .replace(/\s+/g, " ")
+      .join("\n")
       .trim();
 
     if (text) {
