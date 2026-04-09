@@ -197,7 +197,10 @@ function extractXlsxText(bytes: Uint8Array) {
 
 async function extractPdfText(bytes: Uint8Array) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const pdfjsWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  const workerModulePath: string = "pdfjs-dist/legacy/build/pdf.worker.mjs";
+  const pdfjsWorker = (await import(workerModulePath)) as {
+    WorkerMessageHandler: unknown;
+  };
   if (!globalThis.pdfjsWorker) {
     globalThis.pdfjsWorker = pdfjsWorker;
   }
