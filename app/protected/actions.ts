@@ -3045,6 +3045,11 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   const briefContext = JSON.stringify(briefForm, null, 2).slice(0, 14000);
   let supportDocContext = "";
   if (supportFile instanceof File && supportFile.size > 0) {
+    const extension = supportFile.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!new Set(["pdf", "docx"]).has(extension)) {
+      throw new Error("El documento de apoyo solo puede ser PDF o Word (.docx).");
+    }
+
     const extracted = await extractSupportedDocumentText(supportFile);
     const translated = await maybeTranslateWithOllama(extracted.rawText);
     let condensed = translated;

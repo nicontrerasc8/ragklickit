@@ -19,7 +19,7 @@ function getUploadErrorMessage(code: string | null) {
     case "unsupported_file":
       return "Solo se permiten archivos PDF o Word (.docx) en este formulario.";
     case "transcribe_elsewhere":
-      return "No pudimos leer ese archivo automaticamente. Si es un PDF exportado raro o escaneado, transcribelo con IA en otro lado y vuelve a subir el texto limpio.";
+      return "No pudimos procesar el texto de este archivo de forma automatica. Si el PDF viene como imagen, escaneo o exportacion compleja, te recomendamos transcribirlo antes con ChatGPT y luego volver a subir el contenido en un formato legible.";
     default:
       return null;
   }

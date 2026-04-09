@@ -299,11 +299,11 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                     <input
                       type="file"
                       name="support_file"
-                      accept=".txt,.md,.csv,.json,.html,.xml,.docx,.xlsx"
+                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                       className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3 py-3 text-xs text-white/60 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/15 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-violet-100"
                     />
                     <div className="mt-3 flex flex-wrap gap-1.5">
-                      {["PDF", "DOCX", "XLSX", "TXT", "MD"].map((label) => (
+                      {["PDF", "DOCX"].map((label) => (
                         <span
                           key={label}
                           className="rounded-full border border-white/8 bg-white/[0.03] px-2 py-1 text-[10px] font-medium text-white/38"
