@@ -9,10 +9,26 @@ import EmpresaDashboard from "./EmpresaDashboard";
 
 type EmpresaPageProps = {
   params: Promise<{ empresaId: string }>;
+  searchParams?: Promise<{ upload_error?: string }>;
 };
 
-export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
+function getUploadErrorMessage(code: string | null) {
+  switch (code) {
+    case "missing_file":
+      return "Sube un archivo PDF o Word (.docx) para continuar.";
+    case "unsupported_file":
+      return "Solo se permiten archivos PDF o Word (.docx) en este formulario.";
+    case "transcribe_elsewhere":
+      return "No pudimos leer ese archivo automaticamente. Si es un PDF exportado raro o escaneado, transcribelo con IA en otro lado y vuelve a subir el texto limpio.";
+    default:
+      return null;
+  }
+}
+
+export default async function EmpresaDetailPage({ params, searchParams }: EmpresaPageProps) {
   const { empresaId } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const uploadErrorMessage = getUploadErrorMessage(resolvedSearchParams?.upload_error ?? null);
   const supabase = await createClient();
   const {
     data: { user },
@@ -161,6 +177,12 @@ export default async function EmpresaDetailPage({ params }: EmpresaPageProps) {
         <p className="text-sm text-muted-foreground">
           Sube un archivo y el sistema extraera el texto literalmente, sin IA ni reescritura.
         </p>
+
+        {uploadErrorMessage && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            {uploadErrorMessage}
+          </div>
+        )}
 
         <form action={createEmpresaDocument} className="grid gap-3 rounded-md border p-4">
           <input type="hidden" name="empresa_id" value={empresaId} />

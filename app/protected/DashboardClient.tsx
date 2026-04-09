@@ -10,6 +10,7 @@ import {
 } from "@/app/protected/actions";
 import AgenciaDocumentsManager from "./AgenciaDocumentsManager";
 import {
+  AlertTriangle,
   ArrowUpRight,
   BookOpen,
   Building2,
@@ -57,6 +58,7 @@ type Props = {
     raw_text: string;
     created_at: string;
   }[];
+  uploadError: string | null;
 };
 
 type PromptTypeCard = {
@@ -99,6 +101,19 @@ const PROMPT_TYPES: PromptTypeCard[] = [
   },
 ];
 
+function getUploadErrorMessage(code: string | null) {
+  switch (code) {
+    case "missing_file":
+      return "Sube un archivo PDF o Word (.docx) para continuar.";
+    case "unsupported_file":
+      return "Solo se permiten archivos PDF o Word (.docx) en este formulario.";
+    case "transcribe_elsewhere":
+      return "No pudimos leer ese archivo automaticamente. Si es un PDF exportado raro o escaneado, transcribelo con IA en otro lado y vuelve a subir el texto limpio.";
+    default:
+      return null;
+  }
+}
+
 function useDialog() {
   const ref = useRef<HTMLDialogElement>(null);
   const open = () => ref.current?.showModal();
@@ -114,10 +129,12 @@ export default function DashboardClient({
   recentEmpresas,
   agenciaPrompts,
   agenciaDocuments,
+  uploadError,
 }: Props) {
   const empresaDialog = useDialog();
   const promptDialog = useDialog();
   const [activePromptType, setActivePromptType] = useState<PromptTypeCard["key"] | null>(null);
+  const uploadErrorMessage = getUploadErrorMessage(uploadError);
 
   const openPrompt = (key: PromptTypeCard["key"]) => {
     setActivePromptType(key);
@@ -270,6 +287,12 @@ export default function DashboardClient({
 
         {/* Cerebro / documentos */}
         <Panel label="Conocimiento" title="Cerebro estratégico">
+          {uploadErrorMessage && (
+            <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100/85">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-300" />
+              <p className="leading-relaxed">{uploadErrorMessage}</p>
+            </div>
+          )}
           <div className="grid gap-4 lg:grid-cols-[0.65fr_1.35fr]">
             {/* What to upload */}
             <div className="space-y-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">

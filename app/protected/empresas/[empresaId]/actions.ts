@@ -515,6 +515,10 @@ function revalidateEmpresaRoutes(empresaId: string) {
   revalidatePath(`/protected/empresas/${empresaId}/calendario`);
 }
 
+function empresaUploadErrorPath(empresaId: string, code: string) {
+  return `/protected/empresas/${empresaId}?upload_error=${encodeURIComponent(code)}`;
+}
+
 export async function updateEmpresa(formData: FormData) {
   const { supabase, agenciaId } = await requireUserAgenciaContext();
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
@@ -584,15 +588,21 @@ export async function createEmpresaDocument(formData: FormData) {
   }
 
   if (!(uploadedFile instanceof File) || uploadedFile.size <= 0) {
-    throw new Error("Debes subir un archivo para transcribirlo.");
+    redirect(empresaUploadErrorPath(empresaId, "missing_file"));
   }
 
   const extension = uploadedFile.name.split(".").pop()?.toLowerCase() ?? "";
   if (!new Set(["pdf", "docx"]).has(extension)) {
-    throw new Error("Solo se permiten archivos PDF o Word (.docx) en este formulario.");
+    redirect(empresaUploadErrorPath(empresaId, "unsupported_file"));
   }
 
-  const extracted = await extractSupportedDocumentText(uploadedFile);
+  let extracted: Awaited<ReturnType<typeof extractSupportedDocumentText>>;
+  try {
+    extracted = await extractSupportedDocumentText(uploadedFile);
+  } catch {
+    redirect(empresaUploadErrorPath(empresaId, "transcribe_elsewhere"));
+  }
+
   const title =
     rawTitle || extracted.fileName.replace(/\.[^.]+$/, "").trim() || "Documento de empresa";
 
@@ -611,6 +621,7 @@ export async function createEmpresaDocument(formData: FormData) {
   }
 
   revalidateEmpresaRoutes(empresaId);
+  redirect(`/protected/empresas/${empresaId}`);
 }
 
 export async function deleteEmpresaDocument(formData: FormData) {

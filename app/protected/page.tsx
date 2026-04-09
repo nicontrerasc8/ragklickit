@@ -3,6 +3,10 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import DashboardClient from "./DashboardClient";
 
+type ProtectedPageProps = {
+  searchParams?: Promise<{ upload_error?: string }>;
+};
+
 function DashboardFallback() {
   return (
     <div className="grid gap-4 sm:grid-cols-3">
@@ -13,8 +17,9 @@ function DashboardFallback() {
   );
 }
 
-async function ProtectedPageContent() {
+async function ProtectedPageContent({ searchParams }: ProtectedPageProps) {
   const supabase = await createClient();
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -89,14 +94,15 @@ async function ProtectedPageContent() {
       recentEmpresas={recentEmpresas ?? []}
       agenciaPrompts={agenciaPrompts ?? []}
       agenciaDocuments={agenciaDocuments ?? []}
+      uploadError={resolvedSearchParams?.upload_error ?? null}
     />
   );
 }
 
-export default function ProtectedPage() {
+export default function ProtectedPage(props: ProtectedPageProps) {
   return (
     <Suspense fallback={<DashboardFallback />}>
-      <ProtectedPageContent />
+      <ProtectedPageContent {...props} />
     </Suspense>
   );
 }
