@@ -29,6 +29,7 @@ import {
   normalizeCalendarioContent,
 } from "@/lib/calendario/schema";
 import { buildCalendarioDraftPrompt } from "@/lib/calendario/prompts";
+import { transcribePdfWithOcrSpace } from "@/lib/ocr-space";
 import {
   buildCalendarioArtifactScores,
   buildPlanArtifactScores,
@@ -425,6 +426,13 @@ async function extractSupportedDocumentText(uploadedFile: File) {
   if (extension === "pdf") {
     rawText = await extractPdfText(bytes);
     if (rawText.replace(/\s+/g, "").length < 80) {
+      try {
+        rawText = await transcribePdfWithOcrSpace(fileName, bytes);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    if (rawText.replace(/\s+/g, "").length < 80) {
       rawText = await transcribePdfWithOpenAI(fileName, bytes);
     }
   } else if (["txt", "md", "csv", "json", "html", "xml"].includes(extension)) {
@@ -441,9 +449,9 @@ async function extractSupportedDocumentText(uploadedFile: File) {
   if (!rawText) {
     if (extension === "pdf") {
       throw new Error(
-        process.env.OPENAI_API_KEY?.trim()
+        process.env.OCR_SPACE_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
           ? "No se pudo extraer ni transcribir el PDF. Prueba con otro archivo o revisa si el PDF esta protegido."
-          : "No se pudo extraer texto del PDF. El archivo parece escaneado o basado en imagen. Configura OPENAI_API_KEY para habilitar transcripcion OCR con IA.",
+          : "No se pudo extraer texto del PDF. El archivo parece escaneado o basado en imagen. Configura OCR_SPACE_API_KEY para habilitar OCR.",
       );
     }
 
