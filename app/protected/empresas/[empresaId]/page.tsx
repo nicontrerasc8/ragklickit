@@ -12,6 +12,8 @@ type EmpresaPageProps = {
   searchParams?: Promise<{ upload_error?: string }>;
 };
 
+export const maxDuration = 60;
+
 function getUploadErrorMessage(code: string | null) {
   switch (code) {
     case "missing_file":

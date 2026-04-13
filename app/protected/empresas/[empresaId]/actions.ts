@@ -527,6 +527,13 @@ function empresaUploadErrorPath(empresaId: string, code: string) {
   return `/protected/empresas/${empresaId}?upload_error=${encodeURIComponent(code)}`;
 }
 
+function logUploadFailure(context: string, error: unknown, meta: Record<string, unknown>) {
+  console.error(`[upload:${context}] failed`, {
+    ...meta,
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
 export async function updateEmpresa(formData: FormData) {
   const { supabase, agenciaId } = await requireUserAgenciaContext();
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
@@ -604,10 +611,27 @@ export async function createEmpresaDocument(formData: FormData) {
     redirect(empresaUploadErrorPath(empresaId, "unsupported_file"));
   }
 
+  console.info("[upload:empresa] started", {
+    agenciaId,
+    empresaId,
+    fileName: uploadedFile.name,
+    fileSize: uploadedFile.size,
+    fileType: uploadedFile.type || null,
+    extension,
+  });
+
   let extracted: Awaited<ReturnType<typeof extractSupportedDocumentText>>;
   try {
     extracted = await extractSupportedDocumentText(uploadedFile);
-  } catch {
+  } catch (error) {
+    logUploadFailure("empresa:extract", error, {
+      agenciaId,
+      empresaId,
+      fileName: uploadedFile.name,
+      fileSize: uploadedFile.size,
+      fileType: uploadedFile.type || null,
+      extension,
+    });
     redirect(empresaUploadErrorPath(empresaId, "transcribe_elsewhere"));
   }
 
@@ -625,8 +649,22 @@ export async function createEmpresaDocument(formData: FormData) {
   });
 
   if (error) {
+    logUploadFailure("empresa:insert", error, {
+      agenciaId,
+      empresaId,
+      fileName: uploadedFile.name,
+      fileSize: uploadedFile.size,
+      extension,
+    });
     throw new Error(`No se pudo crear documento: ${error.message}`);
   }
+
+  console.info("[upload:empresa] completed", {
+    agenciaId,
+    empresaId,
+    fileName: uploadedFile.name,
+    rawTextLength: extracted.rawText.length,
+  });
 
   revalidateEmpresaRoutes(empresaId);
   redirect(`/protected/empresas/${empresaId}`);

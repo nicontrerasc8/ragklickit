@@ -526,6 +526,13 @@ function agenciaUploadErrorPath(code: string) {
   return `/protected?upload_error=${encodeURIComponent(code)}`;
 }
 
+function logUploadFailure(context: string, error: unknown, meta: Record<string, unknown>) {
+  console.error(`[upload:${context}] failed`, {
+    ...meta,
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
 async function requireUser() {
   const supabase = await createClient();
   const {
@@ -1972,10 +1979,25 @@ export async function createAgenciaDocument(formData: FormData) {
     redirect(agenciaUploadErrorPath("unsupported_file"));
   }
 
+  console.info("[upload:agencia] started", {
+    agenciaId,
+    fileName: uploadedFile.name,
+    fileSize: uploadedFile.size,
+    fileType: uploadedFile.type || null,
+    extension,
+  });
+
   let extracted: Awaited<ReturnType<typeof extractSupportedDocumentText>>;
   try {
     extracted = await extractSupportedDocumentText(uploadedFile);
-  } catch {
+  } catch (error) {
+    logUploadFailure("agencia:extract", error, {
+      agenciaId,
+      fileName: uploadedFile.name,
+      fileSize: uploadedFile.size,
+      fileType: uploadedFile.type || null,
+      extension,
+    });
     redirect(agenciaUploadErrorPath("transcribe_elsewhere"));
   }
 
@@ -1993,8 +2015,20 @@ export async function createAgenciaDocument(formData: FormData) {
   });
 
   if (error) {
+    logUploadFailure("agencia:insert", error, {
+      agenciaId,
+      fileName: uploadedFile.name,
+      fileSize: uploadedFile.size,
+      extension,
+    });
     throw new Error(`No se pudo crear documento de agencia: ${error.message}`);
   }
+
+  console.info("[upload:agencia] completed", {
+    agenciaId,
+    fileName: uploadedFile.name,
+    rawTextLength: extracted.rawText.length,
+  });
 
   revalidatePath("/protected");
   redirect("/protected");

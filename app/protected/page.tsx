@@ -7,6 +7,8 @@ type ProtectedPageProps = {
   searchParams?: Promise<{ upload_error?: string }>;
 };
 
+export const maxDuration = 60;
+
 function DashboardFallback() {
   return (
     <div className="grid gap-4 sm:grid-cols-3">
