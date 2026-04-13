@@ -424,7 +424,16 @@ async function extractSupportedDocumentText(uploadedFile: File) {
   let rawText = "";
 
   if (extension === "pdf") {
-    rawText = await extractPdfText(bytes);
+    try {
+      rawText = await extractPdfText(bytes);
+    } catch (error) {
+      console.error("[upload:extract] pdf text layer failed", {
+        fileName,
+        fileSize: uploadedFile.size,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      rawText = "";
+    }
     console.info("[upload:extract] pdf text layer read", {
       fileName,
       fileSize: uploadedFile.size,
