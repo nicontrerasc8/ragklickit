@@ -425,15 +425,31 @@ async function extractSupportedDocumentText(uploadedFile: File) {
 
   if (extension === "pdf") {
     rawText = await extractPdfText(bytes);
+    console.info("[upload:extract] pdf text layer read", {
+      fileName,
+      fileSize: uploadedFile.size,
+      textLength: rawText.replace(/\s+/g, "").length,
+      hasOcrSpace: Boolean(process.env.OCR_SPACE_API_KEY?.trim()),
+      hasOpenAi: Boolean(process.env.OPENAI_API_KEY?.trim()),
+    });
     if (rawText.replace(/\s+/g, "").length < 80) {
       try {
         rawText = await transcribePdfWithOcrSpace(fileName, bytes);
       } catch (error) {
-        console.error(error);
+        console.error("[upload:extract] ocr-space failed", {
+          fileName,
+          fileSize: uploadedFile.size,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     if (rawText.replace(/\s+/g, "").length < 80) {
       rawText = await transcribePdfWithOpenAI(fileName, bytes);
+      console.info("[upload:extract] openai pdf transcription finished", {
+        fileName,
+        fileSize: uploadedFile.size,
+        textLength: rawText.replace(/\s+/g, "").length,
+      });
     }
   } else if (["txt", "md", "csv", "json", "html", "xml"].includes(extension)) {
     rawText = decodeUtf8(bytes).trim();
@@ -450,8 +466,8 @@ async function extractSupportedDocumentText(uploadedFile: File) {
     if (extension === "pdf") {
       throw new Error(
         process.env.OCR_SPACE_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
-          ? "No se pudo extraer ni transcribir el PDF. Prueba con otro archivo o revisa si el PDF esta protegido."
-          : "No se pudo extraer texto del PDF. El archivo parece escaneado o basado en imagen. Configura OCR_SPACE_API_KEY para habilitar OCR.",
+          ? `No se pudo extraer ni transcribir el PDF. hasOcrSpace=${Boolean(process.env.OCR_SPACE_API_KEY?.trim())} hasOpenAi=${Boolean(process.env.OPENAI_API_KEY?.trim())}.`
+          : "No se pudo extraer texto del PDF. El archivo parece escaneado o basado en imagen. Falta OCR_SPACE_API_KEY u OPENAI_API_KEY en el entorno.",
       );
     }
 

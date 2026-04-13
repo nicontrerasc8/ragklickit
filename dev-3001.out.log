@@ -1,0 +1,14 @@
+
+> dev
+> next dev --port 3001
+
+▲ Next.js 16.1.6 (Turbopack, Cache Components)
+- Local:         http://localhost:3001
+- Network:       http://192.168.1.12:3001
+- Environments: .env.local
+- Experiments (use with caution):
+  · serverActions
+
+✓ Starting...
+  Suggestion: If you intended to restart next dev, terminate the other process, and then try again.
+[?25h
