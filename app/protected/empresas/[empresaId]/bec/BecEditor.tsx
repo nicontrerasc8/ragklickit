@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveBec } from "@/app/protected/actions";
+import { SaveStatusBar } from "@/components/editor/SaveStatusBar";
 import {
   BEC_TEMPLATE,
   BECFieldKey,
@@ -341,7 +342,14 @@ export default function BecEditor({
     [],
   );
 
-  const serializedBec = useMemo(() => JSON.stringify(bec), [bec]);
+  const serializedSaveState = useMemo(
+    () => JSON.stringify({ company, bec }),
+    [bec, company],
+  );
+  const [lastSavedSerialized, setLastSavedSerialized] = useState(() =>
+    JSON.stringify({ company: { ...DEFAULT_COMPANY, ...initialCompany }, bec: initialBec }),
+  );
+  const hasUnsavedChanges = serializedSaveState !== lastSavedSerialized;
 
   const allFields = visibleSections.flatMap((section) =>
     section.rows.filter(
@@ -350,6 +358,31 @@ export default function BecEditor({
   );
   const filledFields = allFields.filter((row) => bec.fields[row.key]?.trim()).length;
   const progressPct = allFields.length > 0 ? Math.round((filledFields / allFields.length) * 100) : 0;
+
+  async function persistBec(nextBec: BECState, nextCompany: CompanyForm, successMessage: string) {
+    setSavingBec(true);
+    setError("");
+    setStatus("");
+    try {
+      const fd = new FormData();
+      fd.set("empresa_id", empresaId);
+      fd.set("contenido", JSON.stringify(nextBec));
+      fd.set("marca", nextCompany.marca);
+      fd.set("industria", nextCompany.industria);
+      fd.set("pais", nextCompany.pais);
+      fd.set("objetivo", nextCompany.objetivo);
+      fd.set("problema", nextCompany.problema);
+      await saveBec(fd);
+      setLastSavedSerialized(JSON.stringify({ company: nextCompany, bec: nextBec }));
+      setStatus(successMessage);
+      router.refresh();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "No se pudo guardar BEC");
+      throw e;
+    } finally {
+      setSavingBec(false);
+    }
+  }
 
   async function generateBEC() {
     setLoadingBec(true);
@@ -366,10 +399,12 @@ export default function BecEditor({
         throw new Error(data.error || "No se pudo generar BEC");
       }
       setBec(data.bec);
-      setStatus(
+      await persistBec(
+        data.bec,
+        company,
         regenerationPrompt.trim()
-          ? "BEC regenerado con IA usando tus instrucciones. Revisa el contenido y guarda si te sirve."
-          : "BEC generado con IA. Revisa el contenido y guarda cuando este listo.",
+          ? "BEC regenerado con IA y guardado automaticamente."
+          : "BEC generado con IA y guardado automaticamente.",
       );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error desconocido");
@@ -380,25 +415,10 @@ export default function BecEditor({
 
   async function handleSaveBEC(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSavingBec(true);
-    setError("");
-    setStatus("");
     try {
-      const fd = new FormData();
-      fd.set("empresa_id", empresaId);
-      fd.set("contenido", serializedBec);
-      fd.set("marca", company.marca);
-      fd.set("industria", company.industria);
-      fd.set("pais", company.pais);
-      fd.set("objetivo", company.objetivo);
-      fd.set("problema", company.problema);
-      await saveBec(fd);
-      setStatus("BEC guardado correctamente.");
-      router.refresh();
+      await persistBec(bec, company, "BEC guardado correctamente.");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "No se pudo guardar BEC");
-    } finally {
-      setSavingBec(false);
     }
   }
 
@@ -522,36 +542,32 @@ export default function BecEditor({
           ))}
         </div>
 
-        {status || error ? (
-          <div
-            className={`rounded-2xl border px-4 py-3 text-[12px] ${
-              error
-                ? "border-red-400/20 bg-red-400/8 text-red-300"
-                : "border-emerald-400/20 bg-emerald-400/8 text-emerald-300"
-            }`}
-          >
-            {error || status}
-          </div>
-        ) : null}
-
-        <form onSubmit={handleSaveBEC} className="flex justify-end pt-2">
-          <button
-            disabled={savingBec}
-            className="flex items-center gap-2 rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500 disabled:opacity-50"
-          >
-            {savingBec ? (
-              <>
-                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                Guardando...
-              </>
-            ) : (
-              <>
-                <Save size={14} />
-                Guardar BEC
-              </>
-            )}
-          </button>
-        </form>
+        <SaveStatusBar
+          dirty={hasUnsavedChanges}
+          saving={savingBec || loadingBec}
+          savedMessage={status}
+          errorMessage={error}
+          meta="La IA guarda automaticamente. Los cambios manuales se guardan con este boton."
+        >
+          <form onSubmit={handleSaveBEC}>
+            <button
+              disabled={savingBec || loadingBec || !hasUnsavedChanges}
+              className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {savingBec ? (
+                <>
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <Save size={14} />
+                  Guardar cambios
+                </>
+              )}
+            </button>
+          </form>
+        </SaveStatusBar>
       </div>
     </div>
   );

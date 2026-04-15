@@ -2,9 +2,9 @@
 
 import { type ReactNode, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useFormStatus } from "react-dom";
 
 import { updatePlanTrabajoArtifact } from "@/app/protected/actions";
+import { SaveStatusBar, SaveStatusSubmitButton } from "@/components/editor/SaveStatusBar";
 import {
   type PlanTrabajo,
   makeDefaultPlanTrabajo,
@@ -226,19 +226,6 @@ function clampIdeaChecklistToLimits(checklist: IdeaChecklist, plan: PlanTrabajo)
       }),
     };
   });
-}
-
-function SaveButton() {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded-xl border border-sky-400/30 bg-sky-400/[0.08] px-5 py-2.5 text-sm font-semibold text-sky-100 transition-colors hover:bg-sky-400/[0.14] disabled:opacity-40"
-    >
-      {pending ? "Guardando..." : "Guardar cambios"}
-    </button>
-  );
 }
 
 const inputCls =
@@ -500,11 +487,32 @@ export default function PlanTrabajoEditor(props: Props) {
       ),
     [ideaChecklist, plan],
   );
+  const [lastSavedSerialized, setLastSavedSerialized] = useState(serialized);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [savingPlan, setSavingPlan] = useState(false);
+  const boundedChecklist = useMemo(
+    () => clampIdeaChecklistToLimits(ideaChecklist, plan),
+    [ideaChecklist, plan],
+  );
+  const selectedIdeas = countSelectedIdeas(boundedChecklist);
+  const hasUnsavedChanges = serialized !== lastSavedSerialized;
   return (
     <form
       action={async (formData) => {
-        await updatePlanTrabajoArtifact(formData);
-        router.refresh();
+        setSavingPlan(true);
+        setSaveError("");
+        setSaveMessage("");
+        try {
+          await updatePlanTrabajoArtifact(formData);
+          setLastSavedSerialized(String(formData.get("content") ?? serialized));
+          setSaveMessage("Plan guardado correctamente.");
+          router.refresh();
+        } catch (error) {
+          setSaveError(error instanceof Error ? error.message : "No se pudo guardar el plan.");
+        } finally {
+          setSavingPlan(false);
+        }
       }}
       className="space-y-5"
     >
@@ -722,10 +730,19 @@ export default function PlanTrabajoEditor(props: Props) {
         </div>
       </Section>
 
-      <div className="flex items-center justify-between border-t border-white/[0.05] pt-6">
-        <p className="text-xs text-white/30">Los cambios se guardan al presionar el boton.</p>
-        <SaveButton />
-      </div>
+      <SaveStatusBar
+        dirty={hasUnsavedChanges}
+        saving={savingPlan}
+        savedMessage={saveMessage}
+        errorMessage={saveError}
+        meta={
+          <span>
+            {plan.cantidad_contenidos.length} canales · {selectedIdeas} ideas seleccionadas para calendario
+          </span>
+        }
+      >
+        <SaveStatusSubmitButton idleLabel="Guardar plan" pendingLabel="Guardando plan..." />
+      </SaveStatusBar>
     </form>
   );
 }

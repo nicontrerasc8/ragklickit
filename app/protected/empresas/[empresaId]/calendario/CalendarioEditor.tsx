@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 
 import { updateCalendarioArtifact } from "@/app/protected/actions";
+import { SaveStatusBar, SaveStatusSubmitButton } from "@/components/editor/SaveStatusBar";
 import {
   type CalendarioItem,
   makeDefaultCalendarioContent,
@@ -147,7 +148,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SaveButton() {
+export function SaveButton() {
   const { pending } = useFormStatus();
   return (
     <button type="submit" disabled={pending} style={{
@@ -498,6 +499,9 @@ export default function CalendarioEditor(props: Props) {
   const [regeneratingAll, setRegeneratingAll] = useState(false);
   const [regeneratingItemId, setRegeneratingItemId] = useState("");
   const [editorMessage, setEditorMessage] = useState("");
+  const [savingCalendar, setSavingCalendar] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
 
   const [content, setContent] = useState(() => {
     const seed = makeDefaultCalendarioContent();
@@ -528,6 +532,41 @@ export default function CalendarioEditor(props: Props) {
 
   const popupItems = popupDate ? (itemsByDate.get(popupDate) ?? []) : [];
   const serialized = useMemo(() => JSON.stringify(normalizeCalendarioContent(content, content)), [content]);
+  const saveSignature = useMemo(
+    () => JSON.stringify({ title, status, content: serialized }),
+    [serialized, status, title],
+  );
+  const [lastSavedSignature, setLastSavedSignature] = useState(saveSignature);
+  const hasUnsavedChanges = saveSignature !== lastSavedSignature;
+
+  async function persistCalendarContent(nextContent: unknown, successMessage: string) {
+    const normalized = normalizeCalendarioContent(nextContent, content);
+    const contentPayload = JSON.stringify(normalized);
+    const fd = new FormData();
+    fd.set("empresa_id", props.empresaId);
+    fd.set("calendario_id", props.calendarioId);
+    fd.set("title", title);
+    fd.set("status", status);
+    fd.set("content", contentPayload);
+
+    setSavingCalendar(true);
+    setSaveError("");
+    setSaveMessage("");
+    try {
+      await updateCalendarioArtifact(fd);
+      setLastSavedSignature(JSON.stringify({ title, status, content: contentPayload }));
+      setSaveMessage(successMessage);
+      setEditorMessage(successMessage);
+      router.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo guardar el calendario.";
+      setSaveError(message);
+      setEditorMessage(message);
+      throw error;
+    } finally {
+      setSavingCalendar(false);
+    }
+  }
 
   const updateItem = (id: string, patch: Partial<CalendarioItem>) => {
     setContent((prev) => {
@@ -608,8 +647,12 @@ export default function CalendarioEditor(props: Props) {
       if (!response.ok || !data.content) {
         throw new Error(data.error || "No se pudo regenerar el calendario.");
       }
-      setContent(normalizeCalendarioContent(data.content, content));
-      setEditorMessage("Calendario regenerado en memoria. Revisa y guarda si te sirve.");
+      const nextContent = normalizeCalendarioContent(data.content, content);
+      setContent(nextContent);
+      await persistCalendarContent(
+        nextContent,
+        "Calendario regenerado con IA y guardado automaticamente.",
+      );
     } catch (error) {
       setEditorMessage(error instanceof Error ? error.message : "Error regenerando calendario.");
     } finally {
@@ -637,19 +680,21 @@ export default function CalendarioEditor(props: Props) {
       if (!response.ok || !data.item) {
         throw new Error(data.error || "No se pudo regenerar el item.");
       }
-      setContent((prev) =>
-        normalizeCalendarioContent(
-          {
-            ...prev,
-            calendario: {
-              ...prev.calendario,
-              items: prev.calendario.items.map((entry) => (entry.id === item.id ? data.item! : entry)),
-            },
+      const nextContent = normalizeCalendarioContent(
+        {
+          ...content,
+          calendario: {
+            ...content.calendario,
+            items: content.calendario.items.map((entry) => (entry.id === item.id ? data.item! : entry)),
           },
-          prev,
-        ),
+        },
+        content,
       );
-      setEditorMessage("Item regenerado en memoria. Revisa y guarda si te sirve.");
+      setContent(nextContent);
+      await persistCalendarContent(
+        nextContent,
+        "Item regenerado con IA y guardado automaticamente.",
+      );
     } catch (error) {
       setEditorMessage(error instanceof Error ? error.message : "Error regenerando item.");
     } finally {
@@ -701,7 +746,30 @@ export default function CalendarioEditor(props: Props) {
       )}
 
       <form
-        action={async (fd) => { await updateCalendarioArtifact(fd); router.refresh(); }}
+        action={async (fd) => {
+          setSavingCalendar(true);
+          setSaveError("");
+          setSaveMessage("");
+          try {
+            await updateCalendarioArtifact(fd);
+            setLastSavedSignature(
+              JSON.stringify({
+                title: String(fd.get("title") ?? title),
+                status: String(fd.get("status") ?? status),
+                content: String(fd.get("content") ?? serialized),
+              }),
+            );
+            setSaveMessage("Calendario guardado correctamente.");
+            setEditorMessage("Calendario guardado correctamente.");
+            router.refresh();
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "No se pudo guardar el calendario.";
+            setSaveError(message);
+            setEditorMessage(message);
+          } finally {
+            setSavingCalendar(false);
+          }
+        }}
         style={{ display: "flex", flexDirection: "column", gap: 24 }}
       >
         <input type="hidden" name="empresa_id"    value={props.empresaId} />
@@ -989,11 +1057,19 @@ export default function CalendarioEditor(props: Props) {
         </div>
 
         {/* Save bar */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 20, gap: 12, flexWrap: "wrap" }}>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.22)", margin: 0 }}>
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 20 }}>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.22)", margin: "0 0 12px" }}>
             {items.length} evento{items.length !== 1 ? "s" : ""} en total · haz clic en un día para editar
           </p>
-          <SaveButton />
+          <SaveStatusBar
+            dirty={hasUnsavedChanges}
+            saving={savingCalendar || regeneratingAll || Boolean(regeneratingItemId)}
+            savedMessage={saveMessage}
+            errorMessage={saveError}
+            meta={null}
+          >
+            <SaveStatusSubmitButton idleLabel="Guardar calendario" pendingLabel="Guardando calendario..." />
+          </SaveStatusBar>
         </div>
       </form>
     </>

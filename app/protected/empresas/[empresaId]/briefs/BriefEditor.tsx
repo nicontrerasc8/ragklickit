@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 
 import { createBrief, generateBriefDraft } from "@/app/protected/actions";
+import { SaveStatusBar, SaveStatusSubmitButton } from "@/components/editor/SaveStatusBar";
 import {
   BRIEF_OBJECTIVE_GROUPS,
   BRIEF_TEXT_FIELDS,
@@ -56,7 +57,7 @@ function GenerateAiButton() {
   );
 }
 
-function SaveBriefButton() {
+export function SaveBriefButton() {
   const { pending } = useFormStatus();
   return (
     <button
@@ -238,7 +239,21 @@ export default function BriefEditor({
   );
   const [aiError, setAiError] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
+  const [savingBrief, setSavingBrief] = useState(false);
   const serialized = useMemo(() => JSON.stringify(formState), [formState]);
+  const saveSignature = useMemo(
+    () => JSON.stringify({ periodo, estado, formState }),
+    [estado, formState, periodo],
+  );
+  const [lastSavedSignature, setLastSavedSignature] = useState(() =>
+    JSON.stringify({
+      periodo: initialPeriodo ?? toMonthInput(),
+      estado: initialEstado ?? "plan",
+      formState: initialFormState ?? makeDefaultBriefForm(),
+    }),
+  );
+  const hasUnsavedChanges = saveSignature !== lastSavedSignature;
 
   // Progress calculation
   const totalObjectives = BRIEF_OBJECTIVE_GROUPS.reduce((a, g) => a + g.options.length, 0);
@@ -251,10 +266,20 @@ export default function BriefEditor({
   const completedSteps = filledFields + (hasStrategicAnswer ? 1 : 0);
   const progressPct = Math.round((completedSteps / totalSteps) * 100);
   const saveBrief = async (fd: FormData) => {
+    setSavingBrief(true);
     setSaveError("");
     setAiError("");
+    setSaveMessage("");
     try {
       const result = await createBrief(fd);
+      setLastSavedSignature(
+        JSON.stringify({
+          periodo: String(fd.get("periodo") ?? periodo),
+          estado: String(fd.get("estado") ?? estado),
+          formState,
+        }),
+      );
+      setSaveMessage("Brief guardado correctamente.");
       if (result?.briefId) {
         router.push(`/protected/empresas/${empresaId}/briefs/${result.briefId}`);
         router.refresh();
@@ -263,6 +288,8 @@ export default function BriefEditor({
       router.refresh();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "No se pudo guardar el brief.");
+    } finally {
+      setSavingBrief(false);
     }
   };
 
@@ -368,16 +395,6 @@ export default function BriefEditor({
           {aiError ? (
             <p className="text-[11px] text-rose-300/85">{aiError}</p>
           ) : null}
-          <form action={saveBrief} className="pt-1">
-            <input type="hidden" name="empresa_id" value={empresaId} />
-            <input type="hidden" name="periodo" value={periodo} />
-            <input type="hidden" name="estado" value={estado} />
-            <input type="hidden" name="contenido" value={serialized} />
-            <SaveBriefButton />
-          </form>
-          {saveError ? (
-            <p className="text-[11px] text-rose-300/85">{saveError}</p>
-          ) : null}
         </div>
       </section>
       </aside>
@@ -479,19 +496,25 @@ export default function BriefEditor({
       </section>
 
       {/* ── Save ─────────────────────────────────────────────────────── */}
-      <form
-        action={saveBrief}
-        className="pt-2 flex justify-end"
-      >
+      <form action={saveBrief}>
         <input type="hidden" name="empresa_id" value={empresaId} />
         <input type="hidden" name="periodo" value={periodo} />
         <input type="hidden" name="estado" value={estado} />
         <input type="hidden" name="contenido" value={serialized} />
-        <SaveBriefButton />
+        <SaveStatusBar
+          dirty={hasUnsavedChanges}
+          saving={savingBrief}
+          savedMessage={saveMessage}
+          errorMessage={saveError}
+          meta={
+            <span>
+              Periodo {periodo || "sin periodo"} · Estado {estado}
+            </span>
+          }
+        >
+          <SaveStatusSubmitButton idleLabel="Guardar brief" pendingLabel="Guardando brief..." />
+        </SaveStatusBar>
       </form>
-      {saveError ? (
-        <p className="text-right text-[11px] text-rose-300/85">{saveError}</p>
-      ) : null}
       </div>
     </div>
   );
