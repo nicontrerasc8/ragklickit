@@ -683,6 +683,36 @@ function getActiveTextModelLabel() {
   return getAIConfig().modelLabel;
 }
 
+function parseAiJsonObject(raw: string): Record<string, unknown> {
+  const trimmed = raw.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = (fenced?.[1] ?? trimmed).trim();
+
+  try {
+    return JSON.parse(candidate) as Record<string, unknown>;
+  } catch {
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
+    }
+    throw new Error("La IA no devolvio JSON valido.");
+  }
+}
+
+function assertWebResearchAvailable(webResearchContext: string) {
+  const normalized = webResearchContext.trim().toLowerCase();
+  if (
+    !normalized ||
+    normalized.startsWith("investigacion web no disponible") ||
+    normalized.includes("sin investigacion web disponible")
+  ) {
+    throw new Error(
+      "No se pudo generar el plan porque la investigacion web es obligatoria. Revisa OPENAI_API_KEY, OPENAI_BASE_URL y el acceso a web_search.",
+    );
+  }
+}
+
 async function upsertBriefEvaluationArtifact(params: {
   empresaId: string;
   agenciaId: string;
@@ -1051,102 +1081,6 @@ function parseAlcanceCalendarioJson(raw: string) {
   }
 }
 
-function applyAlcanceToWeeks(
-  weeks: CalendarWeek[],
-  alcance: Record<string, number>,
-) {
-  const channels = Object.keys(alcance);
-  if (!channels.length) return weeks;
-
-  const normalized = weeks.map((w) => ({ ...w, piezas: [...w.piezas] }));
-  const eq = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-  const isEmailChannel = (channel: string) => /email|mail/i.test(channel);
-
-  const sourceByChannel = Object.fromEntries(
-    channels.map((channel) => [
-      channel,
-      normalized.flatMap((week) => week.piezas.filter((piece) => eq(piece.canal, channel))),
-    ]),
-  ) as Record<string, CalendarWeekPiece[]>;
-
-  for (const week of normalized) {
-    week.piezas = [];
-  }
-
-  channels.forEach((channel, channelIdx) => {
-    const target = Math.min(10, Math.max(0, alcance[channel] ?? 0));
-    if (target <= 0) return;
-
-    for (let i = 0; i < target; i++) {
-      const weekIdx = (i + channelIdx) % normalized.length;
-      const source = sourceByChannel[channel]?.[i];
-      normalized[weekIdx].piezas.push({
-        fecha: source?.fecha ?? "",
-        canal: channel,
-        formato: source?.formato ?? (isEmailChannel(channel) ? "Newsletter" : "Post"),
-        tema: source?.tema ?? `Contenido ${i + 1} ${channel}`,
-        objetivo: source?.objetivo ?? "Alcance y consideracion",
-        cta: source?.cta ?? "Mas informacion",
-        responsable: source?.responsable === "cliente" ? "cliente" : "agencia",
-        estado: source?.estado ?? "planificado",
-      });
-    }
-  });
-
-  return normalized;
-}
-
-function buildCalendarWeeksFromPlanContent(
-  planContent: Record<string, unknown>,
-): CalendarWeek[] {
-  const rawSemanas = Array.isArray(planContent.semanas)
-    ? (planContent.semanas as Record<string, unknown>[])
-    : [];
-
-  return rawSemanas
-    .map((rawSemana, weekIdx) => {
-      const semanaRaw = rawSemana.semana;
-      const semana: CalendarWeekKey =
-        semanaRaw === "S2" || semanaRaw === "S3" || semanaRaw === "S4"
-          ? semanaRaw
-          : "S1";
-      const objetivo =
-        typeof rawSemana.objetivo === "string" ? rawSemana.objetivo : "";
-      const posts = Array.isArray(rawSemana.posts)
-        ? rawSemana.posts
-        : [];
-      const piezas = posts
-        .filter((post): post is string => typeof post === "string")
-        .map((post, postIdx) => {
-          const parts = post
-            .split(" - ")
-            .map((part) => part.trim())
-            .filter(Boolean);
-          const canal = parts[0] ?? "Instagram";
-          const isEmailChannel = /email|mail/i.test(canal);
-          const formato =
-            parts[1] ?? (isEmailChannel ? "Newsletter" : "Post");
-          const tema =
-            parts.slice(2).join(" - ") ||
-            `Pieza ${postIdx + 1} de semana ${weekIdx + 1}`;
-
-          return {
-            fecha: "",
-            canal,
-            formato,
-            tema,
-            objetivo: objetivo || "Alcance y consideracion",
-            cta: "Mas informacion",
-            responsable: "agencia",
-            estado: "planificado",
-          };
-        });
-
-      return { semana, objetivo, piezas };
-    })
-    .filter((week) => week.semana);
-}
-
 function assignCalendarDatesByMonth(
   weeks: CalendarWeek[],
   periodo: string,
@@ -1295,11 +1229,29 @@ type CalendarWeek = {
   piezas: CalendarWeekPiece[];
 };
 
-type CalendarChannel = (typeof CALENDAR_CHANNELS)[number];
+type CalendarChannel = string;
 
 function toCalendarChannel(value: string): CalendarChannel | null {
-  const found = CALENDAR_CHANNELS.find((channel) => channel === value);
-  return found ?? null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const normalized = trimmed
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+  const aliases: Record<string, string> = {
+    "email marketing": "Marketing Email",
+    "marketing email": "Marketing Email",
+    newsletter: "Marketing Email",
+    "linkedin ads": "Anuncios de LinkedIn",
+    "anuncios linkedin": "Anuncios de LinkedIn",
+    "anuncios de linkedin": "Anuncios de LinkedIn",
+    "encuestas linkedin": "Encuestas de LinkedIn",
+    "encuestas de linkedin": "Encuestas de LinkedIn",
+  };
+  const canonical = CALENDAR_CHANNELS.find((channel) => channel.toLowerCase() === trimmed.toLowerCase());
+  return canonical ?? aliases[normalized] ?? trimmed;
 }
 
 function distributeByPilar(
@@ -1379,7 +1331,7 @@ function pickFormatForChannel(
   pilarFormats: string[],
   index: number,
 ) {
-  const defaults: Record<CalendarChannel, string[]> = {
+  const defaults: Record<string, string[]> = {
     Blog: ["Articulo SEO"],
     TikTok: ["Video corto", "UGC-style", "Tip rapido"],
     YouTube: ["Video educativo", "Demo", "Caso de estudio"],
@@ -1387,10 +1339,12 @@ function pickFormatForChannel(
     LinkedIn: ["Post experto", "Carrusel", "Documento", "Video"],
     WhatsApp: ["Mensaje directo", "Seguimiento", "Invitacion"],
     Instagram: ["Carrusel", "Reel", "Historia"],
+    "Anuncios de LinkedIn": ["Anuncio segmentado", "Video corto", "Carrusel pautable"],
+    "Encuestas de LinkedIn": ["Encuesta", "Pregunta de debate", "Pulso de mercado"],
     "Marketing Email": ["Newsletter", "Nurture", "Invitacion", "Caso de exito"],
   };
 
-  const available = pilarFormats.length ? pilarFormats : defaults[channel];
+  const available = pilarFormats.length ? pilarFormats : defaults[channel] ?? ["Post"];
   return available[index % available.length];
 }
 
@@ -1412,7 +1366,7 @@ function buildBaseTitle(params: {
 }
 
 function buildChannelItemId(channel: CalendarChannel, correlativo: number) {
-  const prefixMap: Record<CalendarChannel, string> = {
+  const prefixMap: Record<string, string> = {
     Blog: "BLOG",
     TikTok: "TT",
     YouTube: "YT",
@@ -1420,16 +1374,27 @@ function buildChannelItemId(channel: CalendarChannel, correlativo: number) {
     LinkedIn: "LI",
     WhatsApp: "WA",
     Instagram: "IG",
+    "Anuncios de LinkedIn": "ADLI",
+    "Encuestas de LinkedIn": "POLL-LI",
     "Marketing Email": "EM",
   };
-  return `${prefixMap[channel]}-${String(correlativo).padStart(2, "0")}`;
+  const fallbackPrefix =
+    channel
+      .replace(/[^a-zA-Z0-9\s]/g, "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 6)
+      .toUpperCase() || "ITEM";
+  return `${prefixMap[channel] ?? fallbackPrefix}-${String(correlativo).padStart(2, "0")}`;
 }
 
 function buildCalendarFromPlanTrabajo(params: {
   planTrabajo: Record<string, unknown>;
   fallbackAlcance: Record<string, number>;
 }) {
-  const { planTrabajo, fallbackAlcance } = params;
+  const { planTrabajo } = params;
   const productos = Array.isArray(planTrabajo.productos_servicios_destacar)
     ? (planTrabajo.productos_servicios_destacar as string[]).filter((item) => typeof item === "string")
     : [];
@@ -1439,15 +1404,21 @@ function buildCalendarFromPlanTrabajo(params: {
   const contenidoSugerido = Array.isArray(planTrabajo.contenido_sugerido)
     ? (planTrabajo.contenido_sugerido as Record<string, unknown>[])
     : [];
-  const lineas = contenidoSugerido
+  const selectedIdeaRows = contenidoSugerido
     .map((row) => {
-      const tema = typeof row.canal === "string" && row.canal.trim() ? row.canal.trim() : "";
-      const subtemas = Array.isArray(row.ideas)
+      const rawCanal = typeof row.canal === "string" ? row.canal.trim() : "";
+      const canal = toCalendarChannel(rawCanal);
+      const ideas = Array.isArray(row.ideas)
         ? (row.ideas as string[]).filter((item) => typeof item === "string" && item.trim())
         : [];
-      return { tema, subtemas };
+      return { canal, ideas };
     })
-    .filter((row) => row.tema || row.subtemas.length > 0);
+    .filter((row): row is { canal: CalendarChannel; ideas: string[] } =>
+      Boolean(row.canal && row.ideas.length > 0),
+    );
+  const selectedIdeas = selectedIdeaRows.flatMap((row) =>
+    row.ideas.map((idea) => ({ canal: row.canal, idea: idea.trim() })),
+  );
   const ctas = mensajes.length > 0 ? mensajes : ["Solicita una cita"];
   const hashtagsPermitidos: string[] = [];
   const frasesProhibidas: string[] = [];
@@ -1476,19 +1447,16 @@ function buildCalendarFromPlanTrabajo(params: {
     })
     .filter((p) => p.pilar);
 
-  const alcanceObj = normalizeAlcanceMap(
-    (planTrabajo as Record<string, unknown>).alcance_calendario,
+  const strictAlcanceFromIdeas = selectedIdeas.reduce(
+    (acc, item) => {
+      acc[item.canal] = (acc[item.canal] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
   );
-  const alcanceNormalized =
-    Object.keys(alcanceObj).length > 0 ? alcanceObj : fallbackAlcance;
-  const channels = Object.keys(alcanceNormalized)
-    .map((value) => toCalendarChannel(value))
-    .filter((value): value is CalendarChannel => Boolean(value));
-
-  const totalPieces = channels.reduce(
-    (acc, channel) => acc + (alcanceNormalized[channel] ?? 0),
-    0,
-  );
+  const alcanceNormalized = strictAlcanceFromIdeas;
+  const channels = Array.from(new Set(selectedIdeas.map((item) => item.canal)));
+  const totalPieces = selectedIdeas.length;
   const distributedPilares = distributeByPilar(pilares, totalPieces);
   const pilarPool = expandPilarPool(distributedPilares);
 
@@ -1497,75 +1465,64 @@ function buildCalendarFromPlanTrabajo(params: {
   const weekCounters: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
   let globalIndex = 0;
 
+  const plannedPieces = selectedIdeas;
+
   for (const channel of channels) {
-    const amount = alcanceNormalized[channel] ?? 0;
     countersByChannel[channel] = 0;
+  }
 
-    for (let i = 0; i < amount; i += 1) {
-      const fallbackPilar = {
-        pilar: "Captura de Leads",
-        porcentaje: 100,
-        objetivo: "Generar leads calificados",
-        formatos: [] as string[],
-      };
-      const pilar =
-        pilarPool[globalIndex % Math.max(pilarPool.length, 1)] ?? fallbackPilar;
-      const fallbackLinea = {
-        tema: productos[0] || "Contenido comercial",
-        subtemas:
-          productos.length > 0
-            ? productos
-            : mensajes.length > 0
-              ? mensajes
-              : ["Propuesta de valor"],
-      };
-      const linea =
-        lineas[globalIndex % Math.max(lineas.length, 1)] ?? fallbackLinea;
-      const tema = typeof linea.tema === "string" ? linea.tema : "Contenido comercial";
-      const subtemas = Array.isArray(linea.subtemas)
-        ? (linea.subtemas as string[])
-        : [];
-      const subtema =
-        subtemas[globalIndex % Math.max(subtemas.length, 1)] || tema;
-      const buyer = productos[globalIndex % Math.max(productos.length, 1)] || "Audiencia prioritaria";
-      const cta = ctas[globalIndex % Math.max(ctas.length, 1)] || "Solicita informacion";
-      const week = weekFromChannelIndex(i, amount);
+  for (const piece of plannedPieces) {
+    const channel = piece.canal;
+    const amount = alcanceNormalized[channel] ?? plannedPieces.filter((item) => item.canal === channel).length;
+    const indexInsideChannel = countersByChannel[channel] ?? 0;
+    const fallbackPilar = {
+      pilar: "Captura de Leads",
+      porcentaje: 100,
+      objetivo: "Generar leads calificados",
+      formatos: [] as string[],
+    };
+    const pilar =
+      pilarPool[globalIndex % Math.max(pilarPool.length, 1)] ?? fallbackPilar;
+    const tema = channel;
+    const subtema = piece.idea || tema;
+    const buyer = productos[globalIndex % Math.max(productos.length, 1)] || "Audiencia prioritaria";
+    const cta = ctas[globalIndex % Math.max(ctas.length, 1)] || "Solicita informacion";
+    const week = weekFromChannelIndex(indexInsideChannel, amount);
 
-      weekCounters[week] = (weekCounters[week] ?? 0) + 1;
-      countersByChannel[channel] += 1;
+    weekCounters[week] = (weekCounters[week] ?? 0) + 1;
+    countersByChannel[channel] = indexInsideChannel + 1;
 
-      const format = pickFormatForChannel(channel, pilar.formatos, i);
-      const baseTitle = buildBaseTitle({
-        channel,
-        tema,
-        subtema,
-        pilar: pilar.pilar,
-        mainMessage: mensajes[0] || productos[0] || "",
-      });
+    const format = pickFormatForChannel(channel, pilar.formatos, indexInsideChannel);
+    const baseTitle = buildBaseTitle({
+      channel,
+      tema,
+      subtema,
+      pilar: pilar.pilar,
+      mainMessage: mensajes[0] || productos[0] || "",
+    });
 
-      items.push({
-        id: buildChannelItemId(channel, countersByChannel[channel]),
-        canal: channel,
-        semana: week,
-        orden_semana: weekCounters[week],
-        pilar: pilar.pilar,
-        tema,
-        subtema,
-        buyer_persona: buyer,
-        objetivo_contenido: pilar.objetivo,
-        formato: format,
-        titulo_base: baseTitle,
-        CTA: cta,
-        mensaje_clave: mensajes[0] || cta,
-        hashtags: hashtagsPermitidos,
-        restricciones_aplicadas: {
-          frases_prohibidas: frasesProhibidas,
-          disclaimers,
-        },
-        estado: "planificado",
-      });
-      globalIndex += 1;
-    }
+    items.push({
+      id: buildChannelItemId(channel, countersByChannel[channel]),
+      canal: channel,
+      semana: week,
+      orden_semana: weekCounters[week],
+      pilar: pilar.pilar,
+      tema,
+      subtema,
+      buyer_persona: buyer,
+      objetivo_contenido: pilar.objetivo,
+      formato: format,
+      titulo_base: subtema || baseTitle,
+      CTA: cta,
+      mensaje_clave: mensajes[0] || cta,
+      hashtags: hashtagsPermitidos,
+      restricciones_aplicadas: {
+        frases_prohibidas: frasesProhibidas,
+        disclaimers,
+      },
+      estado: "planificado",
+    });
+    globalIndex += 1;
   }
 
   const summaryByChannel = Object.fromEntries(
@@ -1583,6 +1540,50 @@ function buildCalendarFromPlanTrabajo(params: {
       items,
     },
   };
+}
+
+function enforceCalendarItemsFromPlanSelection(
+  content: unknown,
+  strictDefault: unknown,
+) {
+  const generated = normalizeCalendarioContent(content, normalizeCalendarioContent(strictDefault));
+  const strict = normalizeCalendarioContent(strictDefault);
+  const generatedById = new Map(
+    generated.calendario.items.map((item, index) => [item.id || String(index), item]),
+  );
+
+  const items = strict.calendario.items.map((seed, index) => {
+    const generatedMatch = generatedById.get(seed.id || String(index)) ?? generated.calendario.items[index];
+    return {
+      ...seed,
+      fecha: generatedMatch?.fecha || seed.fecha,
+      semana: generatedMatch?.semana ?? seed.semana,
+      orden_semana: generatedMatch?.orden_semana ?? seed.orden_semana,
+      estado: generatedMatch?.estado || seed.estado,
+      asset_bundle: null,
+    };
+  });
+  const alcance = items.reduce(
+    (acc, item) => {
+      if (item.canal.trim()) acc[item.canal] = (acc[item.canal] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+
+  return normalizeCalendarioContent(
+    {
+      ...generated,
+      canales_prioritarios: Object.keys(alcance),
+      alcance_calendario: alcance,
+      calendario: {
+        ...generated.calendario,
+        resumen_por_canal: alcance,
+        items,
+      },
+    },
+    strict,
+  );
 }
 
 function ensurePlanSuggestedContent(plan: Record<string, unknown>) {
@@ -3168,6 +3169,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 
   const empresaMetadataContext = JSON.stringify(empresaMetadata, null, 2).slice(0, 10000);
   const webResearchContext = await getCompanyWebResearch(empresa);
+  assertWebResearchAvailable(webResearchContext);
 
   const generatedPlan = await aiChat({
     systemPrompt:
@@ -3192,7 +3194,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 
   let contentJson: Record<string, unknown> = { plan_trabajo: defaultPlanTrabajo };
   try {
-    const parsed = JSON.parse(generatedPlan) as Record<string, unknown>;
+    const parsed = parseAiJsonObject(generatedPlan);
     contentJson = normalizePlanTrabajoContent(parsed, defaultPlanTrabajo);
   } catch {
     contentJson = normalizePlanTrabajoContent(
@@ -3309,7 +3311,6 @@ export async function generateCalendarioDraft(formData: FormData) {
     plan.content_json && typeof plan.content_json === "object"
       ? (plan.content_json as Record<string, unknown>)
       : {};
-  const planSeedWeeks = buildCalendarWeeksFromPlanContent(planContent);
   const inputs =
     plan.inputs_json && typeof plan.inputs_json === "object"
       ? (plan.inputs_json as Record<string, unknown>)
@@ -3340,23 +3341,28 @@ export async function generateCalendarioDraft(formData: FormData) {
   const seedItems = Array.isArray(calendarPayload.calendario.items)
     ? (calendarPayload.calendario.items as Record<string, unknown>[])
     : [];
-  const seedWeeks =
-    planSeedWeeks.length > 0
-      ? assignCalendarDatesByMonth(
-          applyAlcanceToWeeks(planSeedWeeks, alcanceCalendario),
-          periodo,
+  const strictAlcanceCalendario =
+    seedItems.length > 0
+      ? seedItems.reduce<Record<string, number>>(
+          (acc, item) => {
+            const canal = typeof item.canal === "string" ? item.canal.trim() : "";
+            if (canal) acc[canal] = (acc[canal] ?? 0) + 1;
+            return acc;
+          },
+          {},
         )
-      : calendarItemsToWeeks(seedItems, periodo);
+      : {};
+  const seedWeeks = seedItems.length > 0 ? calendarItemsToWeeks(seedItems, periodo) : [];
 
   const defaultCalendario = makeDefaultCalendarioContent({
     periodo,
     resumen: `Calendario generado desde plan_trabajo (${String(periodo).slice(0, 7)}).`,
-    canales_prioritarios: Object.keys(alcanceCalendario),
+    canales_prioritarios: Object.keys(strictAlcanceCalendario),
     semanas: seedWeeks,
     hitos: [],
     riesgos: [],
     supuestos: [],
-    alcance_calendario: alcanceCalendario,
+    alcance_calendario: strictAlcanceCalendario,
     calendario: {
       cliente: empresa.nombre,
       marca: empresa.nombre,
@@ -3383,7 +3389,7 @@ export async function generateCalendarioDraft(formData: FormData) {
       empresaMetadataContext,
       webResearchContext,
       planRoot,
-      alcanceCalendario,
+      alcanceCalendario: strictAlcanceCalendario,
       defaultCalendario,
       customPrompt,
     }),
@@ -3402,6 +3408,10 @@ export async function generateCalendarioDraft(formData: FormData) {
     empresaPais: empresa.pais,
     metadata: empresaMetadata,
   }) as unknown as Record<string, unknown>;
+  contentJson = enforceCalendarItemsFromPlanSelection(
+    contentJson,
+    defaultCalendario,
+  ) as unknown as Record<string, unknown>;
 
   const calendarioArtifactId = await upsertCalendarioArtifact({
     empresaId,
@@ -3409,7 +3419,7 @@ export async function generateCalendarioDraft(formData: FormData) {
     planArtifactId: plan.id,
     periodo,
     contenidoJson: contentJson,
-    alcanceCalendario,
+    alcanceCalendario: strictAlcanceCalendario,
     modelUsed: getActiveTextModelLabel(),
     promptVersion: "calendario_v1",
   });
