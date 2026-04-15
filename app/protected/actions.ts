@@ -10,6 +10,7 @@ import {
   loadBriefForm,
   makeDefaultBriefForm,
 } from "@/lib/brief/schema";
+import { getCompanyWebResearch } from "@/lib/company-web-research";
 import { buildBecScores, replaceBecScores } from "@/lib/bec/scoring";
 import { deriveMonthlyDeliverablesFromMetadata } from "@/lib/bec/schema";
 import {
@@ -610,10 +611,6 @@ function revalidateEmpresaRoutes(empresaId: string) {
   revalidatePath(`/protected/empresas/${empresaId}/calendario`);
 }
 
-function nextBriefPeriodoBase(now = new Date()) {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-}
-
 function normalizeBriefPeriodoOrThrow(periodo: string) {
   const match = periodo.match(/^(\d{4})-(\d{2})/);
   if (!match) {
@@ -627,17 +624,6 @@ function normalizeBriefPeriodoOrThrow(periodo: string) {
   }
 
   const requested = new Date(Date.UTC(year, month - 1, 1));
-  const expected = nextBriefPeriodoBase();
-
-  if (
-    requested.getUTCFullYear() !== expected.getUTCFullYear() ||
-    requested.getUTCMonth() !== expected.getUTCMonth()
-  ) {
-    throw new Error(
-      `El brief solo puede crearse para el mes siguiente: ${expected.toISOString().slice(0, 7)}.`,
-    );
-  }
-
   return requested.toISOString().slice(0, 10);
 }
 
@@ -1639,7 +1625,14 @@ function ensurePlanSuggestedContent(plan: Record<string, unknown>) {
         `${canal}: angulo educativo aplicado al servicio o producto prioritario del mes`,
         `${canal}: objecion frecuente del cliente convertida en pieza de ${formatoBase}`,
         `${canal}: caso, prueba o evidencia comercial con promesa clara`,
-      ].slice(0, Math.min(Math.max(cantidad, 3), 3));
+        `${canal}: comparativa entre una decision promedio y una decision mejor informada`,
+        `${canal}: error comun del mercado explicado con criterio y salida practica`,
+        `${canal}: mito del rubro desmontado con punto de vista de la marca`,
+        `${canal}: checklist de senales de calidad, confianza o fit antes de comprar`,
+        `${canal}: escena real de decision del comprador y pregunta clave para avanzar`,
+        `${canal}: tension entre costo, riesgo y resultado esperable`,
+        `${canal}: insight de comportamiento que conecte con el momento del mercado`,
+      ].slice(0, 10);
 
       return { canal, ideas };
     })
@@ -2793,11 +2786,12 @@ export async function generateBecDraft(formData: FormData) {
         `Documento ${index + 1}: ${doc.title}\n${doc.raw_text.slice(0, 1800)}`,
     )
     .join("\n\n");
+  const webResearchContext = await getCompanyWebResearch(empresa);
 
   const generatedBec = await aiChat({
     systemPrompt:
       "Eres estratega senior de marketing y negocio B2B. Respondes SOLO JSON valido para un BEC comercial, sin inventar datos criticos.",
-    userPrompt: `Genera un BEC para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nContexto documental:\n${context || "Sin documentos"}\n\nReglas:\n1) Usa primero metadata_json y evidencia documental; no inventes cifras, claims ni restricciones.\n2) El BEC debe sonar ejecutivo, concreto y orientado a decisiones.\n3) Si falta evidencia, formula el punto como supuesto explicitamente dentro del texto.\n4) No entregues frases vacias como "mejorar presencia digital" sin explicar para que, para quien y con que efecto.\n5) En propuesta_valor y mensajes_clave, prioriza diferenciacion real, tension comercial y beneficio verificable.\n6) En audiencias, define segmentos con logica de negocio, no etiquetas superficiales.\n7) En canales_recomendados, justifica implicitamente por adecuacion al negocio, no por moda.\n8) En riesgos, incluye riesgos comerciales, operativos, regulatorios y de marca si aplican.\n9) En proximos_pasos, prioriza acciones de alto impacto y baja ambiguedad.\n\nDevuelve SOLO JSON con esta estructura:\n{"resumen_ejecutivo":"","propuesta_valor":"","audiencias":[],"mensajes_clave":[],"canales_recomendados":[],"riesgos":[],"proximos_pasos":[]}`,
+    userPrompt: `Genera un BEC para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nInvestigacion web de empresa:\n${webResearchContext || "Sin investigacion web disponible"}\n\nContexto documental:\n${context || "Sin documentos"}\n\nReglas:\n1) Usa primero metadata_json; luego investigacion web verificable y evidencia documental; no inventes cifras, claims ni restricciones.\n2) El BEC debe sonar ejecutivo, concreto y orientado a decisiones.\n3) Si falta evidencia, formula el punto como supuesto explicitamente dentro del texto.\n4) No entregues frases vacias como "mejorar presencia digital" sin explicar para que, para quien y con que efecto.\n5) En propuesta_valor y mensajes_clave, prioriza diferenciacion real, tension comercial y beneficio verificable.\n6) En audiencias, define segmentos con logica de negocio, no etiquetas superficiales.\n7) En canales_recomendados, justifica implicitamente por adecuacion al negocio, no por moda.\n8) En riesgos, incluye riesgos comerciales, operativos, regulatorios y de marca si aplican.\n9) En proximos_pasos, prioriza acciones de alto impacto y baja ambiguedad.\n10) Usa internet para competencia, benchmarks, SEO, lenguaje de mercado y oportunidades culturales; no uses datos web no verificados como cifras, precios o promociones.\n\nDevuelve SOLO JSON con esta estructura:\n{"resumen_ejecutivo":"","propuesta_valor":"","audiencias":[],"mensajes_clave":[],"canales_recomendados":[],"riesgos":[],"proximos_pasos":[]}`,
     temperature: 0.2,
   });
 
@@ -2929,6 +2923,7 @@ export async function generateBriefDraft(formData: FormData) {
         `Documento ${index + 1}: ${doc.title}\n${doc.raw_text.slice(0, 1800)}`,
     )
     .join("\n\n");
+  const webResearchContext = await getCompanyWebResearch(empresa);
 
   const agencyContext = (agencyDocs ?? [])
     .map(
@@ -2959,7 +2954,7 @@ export async function generateBriefDraft(formData: FormData) {
   const generatedBrief = await aiChat({
     systemPrompt:
       "Eres un planner principal de una agencia premium con criterio de estrategia, contenido, growth y negocio. Respondes SOLO JSON valido para un brief mensual. No inventes datos. Debes sonar preciso, senior, comercialmente inteligente y extremadamente util para operar.",
-    userPrompt: `Genera el brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa (fuente operativa prioritaria para cantidades, temas, alcance y restricciones):\n${empresaMetadataContext || "{}"}\n\nBEC actual (fuente estrategica):\n${becContext}\n\nConocimiento documental de agencia (lineamientos globales):\n${agencyContext || "Sin documentos globales de agencia"}\n\nConocimiento documental de empresa (realidad operativa y comercial):\n${context || "Sin documentos de empresa"}\n\nPrompts activos de agencia:\n${promptsContext || "Sin prompts activos"}\n\nTu rol:\nPiensa como un planner ultra senior que tiene que convertir estrategia en un plan mensual claro, defendible y ejecutable. No redactes como asistente generico. Redacta como alguien que entiende negocio, prioridad comercial, narrativa, conversion, operacion y riesgos.\n\nJerarquia de fuentes:\n1) Usa metadata_json como fuente prioritaria para cantidades, temas, frecuencias, responsables, dependencias, presupuesto, fechas y alcance operativo del mes.\n2) Usa el BEC como base estrategica para direccion, tono, foco comercial, mensajes y consistencia de marca.\n3) Usa documentos de empresa y agencia para contrastar, aterrizar y enriquecer con criterio.\n4) Si hay conflicto, prioriza la fuente mas explicita, reciente y operativa.\n\nCriterio de calidad esperado:\n1) Cada campo debe ayudar a tomar decisiones reales de contenido, pauta, aprobacion, produccion o seguimiento.\n2) Evita frases vacias como "mejorar engagement", "generar awareness", "impulsar comunidad" o "reforzar branding" si no estan aterrizadas.\n3) Si planteas mensajes, deben tener angulo, prioridad comercial, tension competitiva y aplicacion real.\n4) Si planteas temas, deben verse como lineas editoriales o focos de negocio concretos, no categorias blandas ni relleno.\n5) Si seleccionas objetivos, deben responder a una prioridad mensual real y sustentada, no a marcar casillas por completitud.\n6) Si detectas oportunidad de performance, fidelizacion o consideracion, reflejala con criterio, pero solo si existe sustento.\n7) El brief debe sentirse como trabajo de una agencia muy buena: claro, util, especifico y con lectura del momento de negocio.\n\nReglas duras:\n1) No inventes montos, fechas, promociones, campañas, responsables, assets, aprobadores, lanzamientos ni distribuciones de presupuesto.\n2) Si un dato no existe con trazabilidad suficiente, escribe exactamente: "Pendiente de validar con cliente segun metadata_json y contexto actual."\n3) Si no hay lanzamiento, fecha clave o campaña confirmada, usa "-" solo en esos campos descriptivos; para datos operativos faltantes usa la frase de pendiente.\n4) Contrasta el BEC contra evidencia reciente de documentos de empresa y agencia.\n5) Explicita que se mantiene del BEC y que debe ajustarse para este mes.\n6) En cada ajuste, cita evidencia documental o metadata concreta.\n7) Completa el formulario exactamente con las claves indicadas.\n8) No agregues claves nuevas ni cambies la estructura.\n\nDevuelve SOLO JSON con esta estructura exacta:\n{"objectives":${JSON.stringify(objectivesTemplate)},"fields":${JSON.stringify(fieldsTemplate)},"strategicChanges":"si|no","cambios_sobre_bec":[{"tema":"","se_mantiene":"","se_ajusta":"","razon":"","evidencia":""}]}\n\nRegla de formato:\n- En objectives, marca true solo donde aplique y tenga sustento real.\n- En fields, completa texto accionable, especifico y estrategicamente util sin inventar datos.\n- strategicChanges debe ser "si" o "no".\n- En cambios_sobre_bec, registra ajustes con criterio, razon clara y evidencia concreta.`,
+    userPrompt: `Genera el brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa (fuente operativa prioritaria para cantidades, temas, alcance y restricciones):\n${empresaMetadataContext || "{}"}\n\nBEC actual (fuente estrategica):\n${becContext}\n\nInvestigacion web de empresa (fuente externa verificable para mercado, competencia, oferta, tono, SEO y oportunidades):\n${webResearchContext || "Sin investigacion web disponible"}\n\nConocimiento documental de agencia (lineamientos globales):\n${agencyContext || "Sin documentos globales de agencia"}\n\nConocimiento documental de empresa (realidad operativa y comercial):\n${context || "Sin documentos de empresa"}\n\nPrompts activos de agencia:\n${promptsContext || "Sin prompts activos"}\n\nTu rol:\nPiensa como un planner ultra senior que tiene que convertir estrategia en un plan mensual claro, defendible y ejecutable. No redactes como asistente generico. Redacta como alguien que entiende negocio, prioridad comercial, narrativa, conversion, operacion y riesgos.\n\nJerarquia de fuentes:\n1) Usa metadata_json como fuente prioritaria para cantidades, temas, frecuencias, responsables, dependencias, presupuesto, fechas y alcance operativo del mes.\n2) Usa el BEC como base estrategica para direccion, tono, foco comercial, mensajes y consistencia de marca.\n3) Usa investigacion web verificable para contraste de mercado, competencia, SEO, lenguaje real, oferta visible, objeciones y oportunidades culturales.\n4) Usa documentos de empresa y agencia para contrastar, aterrizar y enriquecer con criterio.\n5) Si hay conflicto, prioriza la fuente mas explicita, reciente y operativa.\n\nCriterio de calidad esperado:\n1) Cada campo debe ayudar a tomar decisiones reales de contenido, pauta, aprobacion, produccion o seguimiento.\n2) Evita frases vacias como "mejorar engagement", "generar awareness", "impulsar comunidad" o "reforzar branding" si no estan aterrizadas.\n3) Si planteas mensajes, deben tener angulo, prioridad comercial, tension competitiva y aplicacion real.\n4) Si planteas temas, deben verse como lineas editoriales o focos de negocio concretos, no categorias blandas ni relleno.\n5) Si seleccionas objetivos, deben responder a una prioridad mensual real y sustentada, no a marcar casillas por completitud.\n6) Si detectas oportunidad de performance, fidelizacion o consideracion, reflejala con criterio, pero solo si existe sustento.\n7) El brief debe sentirse como trabajo de una agencia muy buena: claro, util, especifico y con lectura del momento de negocio.\n\nReglas duras:\n1) No inventes montos, fechas, promociones, campañas, responsables, assets, aprobadores, lanzamientos ni distribuciones de presupuesto.\n2) Si un dato no existe con trazabilidad suficiente, escribe exactamente: "Pendiente de validar con cliente segun metadata_json y contexto actual."\n3) Si no hay lanzamiento, fecha clave o campaña confirmada, usa "-" solo en esos campos descriptivos; para datos operativos faltantes usa la frase de pendiente.\n4) Contrasta el BEC contra investigacion web, documentos de empresa y documentos de agencia.\n5) Explicita que se mantiene del BEC y que debe ajustarse para este mes.\n6) En cada ajuste, cita evidencia documental, metadata o fuente web concreta.\n7) Completa el formulario exactamente con las claves indicadas.\n8) No agregues claves nuevas ni cambies la estructura.\n9) No uses datos web no verificados como cifras, precios, promociones, fechas o claims duros.\n\nDevuelve SOLO JSON con esta estructura exacta:\n{"objectives":${JSON.stringify(objectivesTemplate)},"fields":${JSON.stringify(fieldsTemplate)},"strategicChanges":"si|no","cambios_sobre_bec":[{"tema":"","se_mantiene":"","se_ajusta":"","razon":"","evidencia":""}]}\n\nRegla de formato:\n- En objectives, marca true solo donde aplique y tenga sustento real.\n- En fields, completa texto accionable, especifico y estrategicamente util sin inventar datos.\n- strategicChanges debe ser "si" o "no".\n- En cambios_sobre_bec, registra ajustes con criterio, razon clara y evidencia concreta.`,
     temperature: 0.3,
   });
 
@@ -2982,7 +2977,7 @@ export async function generateBriefDraft(formData: FormData) {
         const completionDraft = await aiChat({
           systemPrompt:
             "Eres planner de marketing. Completa campos faltantes de brief con texto concreto, ejecutivo y accionable en espanol. No inventes datos.",
-          userPrompt: `Completa SOLO los campos faltantes del brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa (fuente operativa prioritaria):\n${empresaMetadataContext || "{}"}\n\nBEC:\n${becContext}\n\nContexto agencia:\n${agencyContext || "Sin documentos globales de agencia"}\n\nContexto empresa:\n${context || "Sin documentos de empresa"}\n\nPrompts activos:\n${promptsContext || "Sin prompts activos"}\n\nCampos faltantes:\n${JSON.stringify(missingFields, null, 2)}\n\nReglas:\n1) No inventes montos, fechas, nombres, campañas ni cantidades.\n2) Usa metadata_json como fuente prioritaria cuando exista.\n3) Si no hay evidencia suficiente, responde exactamente "Pendiente de validar con cliente segun metadata_json y contexto actual."\n4) Si hay evidencia, no respondas de forma vaga; entrega una respuesta util para operar.\n\nDevuelve SOLO JSON:\n{"fields":{"<campo>":"<texto>"}}`,
+          userPrompt: `Completa SOLO los campos faltantes del brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa (fuente operativa prioritaria):\n${empresaMetadataContext || "{}"}\n\nBEC:\n${becContext}\n\nInvestigacion web de empresa:\n${webResearchContext || "Sin investigacion web disponible"}\n\nContexto agencia:\n${agencyContext || "Sin documentos globales de agencia"}\n\nContexto empresa:\n${context || "Sin documentos de empresa"}\n\nPrompts activos:\n${promptsContext || "Sin prompts activos"}\n\nCampos faltantes:\n${JSON.stringify(missingFields, null, 2)}\n\nReglas:\n1) No inventes montos, fechas, nombres, campañas ni cantidades.\n2) Usa metadata_json como fuente prioritaria cuando exista.\n3) Usa investigacion web solo para enriquecer mercado, competencia, SEO, tono y oportunidades si hay evidencia.\n4) Si no hay evidencia suficiente, responde exactamente "Pendiente de validar con cliente segun metadata_json y contexto actual."\n5) Si hay evidencia, no respondas de forma vaga; entrega una respuesta util para operar.\n\nDevuelve SOLO JSON:\n{"fields":{"<campo>":"<texto>"}}`,
           temperature: 0.2,
         });
 
@@ -3172,6 +3167,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   });
 
   const empresaMetadataContext = JSON.stringify(empresaMetadata, null, 2).slice(0, 10000);
+  const webResearchContext = await getCompanyWebResearch(empresa);
 
   const generatedPlan = await aiChat({
     systemPrompt:
@@ -3184,6 +3180,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
       becContext,
       briefContext,
       supportDocContext,
+      webResearchContext,
       empresaDocsContext,
       agenciaDocsContext,
       promptContext,
@@ -3375,6 +3372,7 @@ export async function generateCalendarioDraft(formData: FormData) {
   });
 
   const empresaMetadataContext = JSON.stringify(empresaMetadata, null, 2).slice(0, 10000);
+  const webResearchContext = await getCompanyWebResearch(empresa);
 
   const generatedCalendario = await aiChat({
     systemPrompt:
@@ -3383,6 +3381,7 @@ export async function generateCalendarioDraft(formData: FormData) {
       periodo,
       empresa,
       empresaMetadataContext,
+      webResearchContext,
       planRoot,
       alcanceCalendario,
       defaultCalendario,

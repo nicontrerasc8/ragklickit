@@ -65,24 +65,54 @@ function linesToPilares(text: string) {
     .filter((item) => item.pilar || item.porcentaje);
 }
 
-function ideasToLines(plan: PlanTrabajo) {
-  return plan.contenido_sugerido
-    .flatMap((item) => item.ideas.map((idea) => `${item.canal} | ${idea}`))
-    .join("\n");
-}
+type IdeaChecklist = Array<{
+  canal: string;
+  ideas: Array<{
+    id: string;
+    text: string;
+    selected: boolean;
+  }>;
+}>;
 
-function buildSuggestedContentFallback(plan: PlanTrabajo) {
+function buildSuggestedContentFallbackRows(plan: PlanTrabajo) {
   return plan.cantidad_contenidos
     .filter((item) => item.red.trim().length > 0 && item.cantidad > 0)
-    .flatMap((item) => {
+    .map((item) => {
       const formatoBase = item.formatos[0]?.trim() || "contenido";
-      return [
-        `${item.red} | Angulo educativo aterrizado al producto o servicio prioritario del mes`,
-        `${item.red} | Objecion frecuente del cliente convertida en pieza de ${formatoBase}`,
-        `${item.red} | Caso, evidencia o prueba comercial con promesa clara`,
-      ];
-    })
-    .join("\n");
+      return {
+        canal: item.red,
+        ideas: expandIdeaCandidates(item.red, [
+          "Angulo educativo aterrizado al producto o servicio prioritario del mes",
+          `Objecion frecuente del cliente convertida en pieza de ${formatoBase}`,
+          "Caso, evidencia o prueba comercial con promesa clara",
+        ]),
+      };
+    });
+}
+
+function expandIdeaCandidates(canal: string, ideas: string[]) {
+  const cleanIdeas = Array.from(new Set(ideas.map((idea) => idea.trim()).filter(Boolean)));
+  const fallbackIdeas = [
+    `Criterio de compra que el cliente deberia revisar antes de elegir una solucion en ${canal}`,
+    `Error comun del mercado que la marca puede corregir con autoridad en ${canal}`,
+    `Comparativa entre una decision promedio y una decision mejor informada para ${canal}`,
+    `Mito del rubro convertido en una linea de contenido con punto de vista`,
+    `Escena real de decision del comprador y la pregunta que deberia hacerse`,
+    `Checklist editorial sobre senales de calidad, confianza o fit antes de comprar`,
+    `Prueba social o evidencia observable que reduzca friccion comercial`,
+    `Tension entre costo, riesgo y resultado esperable explicada con claridad`,
+    `Insight cultural o de comportamiento que conecte con el momento del mercado`,
+    `Pregunta provocadora para abrir conversacion con prospectos calificados`,
+  ];
+
+  for (const idea of fallbackIdeas) {
+    if (cleanIdeas.length >= 9) break;
+    if (!cleanIdeas.includes(idea)) {
+      cleanIdeas.push(idea);
+    }
+  }
+
+  return cleanIdeas.slice(0, 10);
 }
 
 function buildImportantDatesFallback(plan: PlanTrabajo) {
@@ -119,20 +149,83 @@ function buildImportantDatesFallback(plan: PlanTrabajo) {
   ].join("\n");
 }
 
-function linesToIdeas(text: string) {
-  const grouped = new Map<string, string[]>();
+function planToIdeaChecklist(plan: PlanTrabajo): IdeaChecklist {
+  const source =
+    plan.contenido_sugerido.length > 0
+      ? plan.contenido_sugerido.map((row) => ({
+          canal: row.canal,
+          ideas: expandIdeaCandidates(row.canal, row.ideas),
+        }))
+      : buildSuggestedContentFallbackRows(plan);
 
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const [canal = "", idea = ""] = line.split("|").map((part) => part.trim());
-    if (!canal || !idea) continue;
-    const current = grouped.get(canal) ?? [];
-    current.push(idea);
-    grouped.set(canal, current);
-  }
+  return source
+    .filter((row) => row.canal.trim() && row.ideas.length > 0)
+    .map((row) => ({
+      canal: row.canal,
+      ideas: row.ideas.map((idea, index) => ({
+        id: `${row.canal}-${index}-${idea.slice(0, 20)}`,
+        text: idea,
+        selected: index < (getChannelLimit(plan, row.canal) ?? row.ideas.length),
+      })),
+    }));
+}
 
-  return Array.from(grouped.entries()).map(([canal, ideas]) => ({ canal, ideas }));
+function ideaChecklistToPlanIdeas(checklist: IdeaChecklist) {
+  return checklist
+    .map((row) => ({
+      canal: row.canal,
+      ideas: row.ideas
+        .filter((idea) => idea.selected)
+        .map((idea) => idea.text.trim())
+        .filter(Boolean),
+    }))
+    .filter((row) => row.canal.trim() && row.ideas.length > 0);
+}
+
+function countSelectedIdeas(checklist: IdeaChecklist) {
+  return checklist.reduce(
+    (acc, row) => acc + row.ideas.filter((idea) => idea.selected).length,
+    0,
+  );
+}
+
+function countTotalIdeas(checklist: IdeaChecklist) {
+  return checklist.reduce((acc, row) => acc + row.ideas.length, 0);
+}
+
+function normalizeChannelKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getChannelLimit(plan: PlanTrabajo, canal: string) {
+  const normalizedCanal = normalizeChannelKey(canal);
+  const row = plan.cantidad_contenidos.find(
+    (item) => normalizeChannelKey(item.red) === normalizedCanal,
+  );
+  return row?.cantidad && row.cantidad > 0 ? row.cantidad : null;
+}
+
+function clampIdeaChecklistToLimits(checklist: IdeaChecklist, plan: PlanTrabajo): IdeaChecklist {
+  return checklist.map((row) => {
+    const limit = getChannelLimit(plan, row.canal);
+    if (limit === null) return row;
+
+    let selectedCount = 0;
+    return {
+      ...row,
+      ideas: row.ideas.map((idea) => {
+        if (!idea.selected) return idea;
+        const keepSelected = selectedCount < limit;
+        if (keepSelected) selectedCount += 1;
+        return keepSelected ? idea : { ...idea, selected: false };
+      }),
+    };
+  });
 }
 
 function SaveButton() {
@@ -241,19 +334,171 @@ function AreaField({
   );
 }
 
+function IdeasChecklistField({
+  value,
+  plan,
+  onChange,
+}: {
+  value: IdeaChecklist;
+  plan: PlanTrabajo;
+  onChange: (value: IdeaChecklist) => void;
+}) {
+  const boundedValue = useMemo(() => clampIdeaChecklistToLimits(value, plan), [plan, value]);
+  const total = countTotalIdeas(boundedValue);
+  const selected = countSelectedIdeas(boundedValue);
+
+  function setChannelSelection(channelIndex: number, selectedValue: boolean) {
+    onChange(
+      boundedValue.map((row, rowIndex) => {
+        if (rowIndex !== channelIndex) return row;
+        const channelLimit = getChannelLimit(plan, row.canal);
+        let selectedCount = 0;
+        return {
+          ...row,
+          ideas: row.ideas.map((idea) => {
+            if (!selectedValue) return { ...idea, selected: false };
+            const shouldSelect = channelLimit === null || selectedCount < channelLimit;
+            if (shouldSelect) selectedCount += 1;
+            return { ...idea, selected: shouldSelect };
+          }),
+        };
+      }),
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-sky-300/15 bg-sky-300/[0.05] px-4 py-3">
+        <p className="text-sm font-semibold text-sky-100">
+          Selecciona las mejores ideas para llevar al calendario.
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-sky-100/55">
+          Hay {selected}/{total} ideas seleccionadas. Cada canal permite seleccionar exactamente el maximo definido en Cantidad de Contenidos.
+        </p>
+      </div>
+
+      {boundedValue.length === 0 ? (
+        <div className="rounded-xl border border-white/8 bg-white/[0.025] px-4 py-5 text-sm text-white/35">
+          No hay ideas sugeridas todavia.
+        </div>
+      ) : null}
+
+      <div className="space-y-4">
+        {boundedValue.map((row, channelIndex) => {
+          const channelSelected = row.ideas.filter((idea) => idea.selected).length;
+          const channelLimit = getChannelLimit(plan, row.canal);
+          const isAtLimit = channelLimit !== null && channelSelected >= channelLimit;
+          return (
+            <div
+              key={`${row.canal}-${channelIndex}`}
+              className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-white/85">{row.canal}</p>
+                  <p className="mt-0.5 text-[11px] text-white/35">
+                    {channelSelected}/{channelLimit ?? row.ideas.length} seleccionadas
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setChannelSelection(channelIndex, true)}
+                    disabled={channelLimit !== null && channelSelected >= channelLimit}
+                    className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-semibold text-white/50 transition-colors hover:text-white/80"
+                  >
+                    Seleccionar maximo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChannelSelection(channelIndex, false)}
+                    className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-semibold text-white/40 transition-colors hover:text-white/70"
+                  >
+                    Limpiar
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-2 p-4 lg:grid-cols-2">
+                {row.ideas.map((idea, ideaIndex) => {
+                  const disabledByLimit = !idea.selected && isAtLimit;
+                  return (
+                    <label
+                      key={idea.id}
+                      className={`flex gap-3 rounded-xl border px-3.5 py-3 transition-all ${
+                        disabledByLimit
+                          ? "cursor-not-allowed border-white/6 bg-black/10 text-white/25"
+                          : idea.selected
+                            ? "cursor-pointer border-emerald-300/25 bg-emerald-300/[0.07] text-white/85"
+                            : "cursor-pointer border-white/8 bg-black/10 text-white/45 hover:border-white/14 hover:text-white/70"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={idea.selected}
+                        disabled={disabledByLimit}
+                        onChange={(event) =>
+                          onChange(
+                            boundedValue.map((currentRow, currentRowIndex) =>
+                              currentRowIndex === channelIndex
+                                ? {
+                                    ...currentRow,
+                                    ideas: currentRow.ideas.map((currentIdea, currentIdeaIndex) =>
+                                      currentIdeaIndex === ideaIndex
+                                        ? { ...currentIdea, selected: event.target.checked }
+                                        : currentIdea,
+                                    ),
+                                  }
+                                : currentRow,
+                            ),
+                          )
+                        }
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-white/5 accent-emerald-500 disabled:opacity-30"
+                      />
+                      <span className="text-sm leading-relaxed">{idea.text}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function PlanTrabajoEditor(props: Props) {
   const router = useRouter();
-  const [title, setTitle] = useState(props.initialTitle || "Plan de trabajo");
-  const [status, setStatus] = useState(props.initialStatus || "plan");
+  const title = props.initialTitle || "Plan de trabajo";
+  const status = props.initialStatus || "plan";
 
   const [plan, setPlan] = useState<PlanTrabajo>(() => {
     const seed = makeDefaultPlanTrabajo();
     return normalizePlanTrabajoContent(props.initialContent, seed).plan_trabajo;
   });
+  const [ideaChecklist, setIdeaChecklist] = useState<IdeaChecklist>(() => {
+    const seed = makeDefaultPlanTrabajo();
+    const initialPlan = normalizePlanTrabajoContent(props.initialContent, seed).plan_trabajo;
+    return planToIdeaChecklist(initialPlan);
+  });
 
   const serialized = useMemo(
-    () => JSON.stringify(normalizePlanTrabajoContent({ plan_trabajo: plan }, plan)),
-    [plan],
+    () =>
+      JSON.stringify(
+        normalizePlanTrabajoContent(
+          {
+            plan_trabajo: {
+              ...plan,
+              contenido_sugerido: ideaChecklistToPlanIdeas(
+                clampIdeaChecklistToLimits(ideaChecklist, plan),
+              ),
+            },
+          },
+          plan,
+        ),
+      ),
+    [ideaChecklist, plan],
   );
   return (
     <form
@@ -265,6 +510,8 @@ export default function PlanTrabajoEditor(props: Props) {
     >
       <input type="hidden" name="empresa_id" value={props.empresaId} />
       <input type="hidden" name="plan_id" value={props.planId} />
+      <input type="hidden" name="title" value={title} />
+      <input type="hidden" name="status" value={status} />
       <input type="hidden" name="content" value={serialized} />
 
       <Section
@@ -374,20 +621,9 @@ export default function PlanTrabajoEditor(props: Props) {
 
       <Section
         title="Contenido Sugerido"
-        description="Lluvia de ideas por canal. Solo ideas o lineas tematicas, no copies, captions, guiones ni textos finales."
+        description="Checklist de ideas por canal. Selecciona solo las mejores para llevarlas al calendario."
       >
-        <AreaField
-          label="Ideas por canal"
-          rows={12}
-          value={ideasToLines(plan) || buildSuggestedContentFallback(plan)}
-          onChange={(value) =>
-            setPlan((current) => ({
-              ...current,
-              contenido_sugerido: linesToIdeas(value),
-            }))
-          }
-          hint="Formato: Canal | Idea general. Una linea por idea."
-        />
+        <IdeasChecklistField value={ideaChecklist} plan={plan} onChange={setIdeaChecklist} />
       </Section>
 
       <Section title="VI. Producto o Servicios a Destacar">

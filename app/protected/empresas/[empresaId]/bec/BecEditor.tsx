@@ -84,48 +84,72 @@ function PilarRow({
   onChange: (field: string, val: string) => void;
 }) {
   const accents = [
-    "from-sky-400 to-blue-500",
-    "from-violet-400 to-indigo-500",
-    "from-teal-400 to-cyan-500",
-    "from-rose-400 to-pink-500",
-    "from-amber-400 to-orange-500",
-    "from-emerald-400 to-green-500",
+    "bg-sky-400",
+    "bg-cyan-400",
+    "bg-emerald-400",
+    "bg-rose-400",
+    "bg-amber-400",
+    "bg-lime-400",
   ];
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/7 bg-white/[0.018]">
-      <div className="flex items-center gap-3 border-b border-white/6 px-4 py-3">
+    <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.025]">
+      <div className="grid gap-4 border-b border-white/7 p-5 lg:grid-cols-[minmax(0,1fr)_140px]">
+        <div className="flex items-center gap-4">
         <span
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accents[idx % accents.length]} text-[10px] font-bold text-white`}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${accents[idx % accents.length]} text-sm font-bold text-black/80`}
         >
           {idx + 1}
         </span>
-        <input
-          value={pilar.pilar}
-          onChange={(e) => onChange("pilar", e.target.value)}
-          placeholder={`Pilar ${idx + 1}`}
-          className="flex-1 bg-transparent text-[13px] font-semibold text-white/80 placeholder:text-white/25 focus:outline-none"
-        />
-        {pilar.porcentaje ? <span className="text-[11px] text-white/35">{pilar.porcentaje}</span> : null}
-      </div>
-      <div className="grid gap-3 p-4 md:grid-cols-3">
-        {(
-          [
-            { key: "porcentaje", label: "% Contenido", placeholder: "20%" },
-            { key: "canales", label: "Canales", placeholder: "Instagram, Email..." },
-            { key: "formatos", label: "Formatos", placeholder: "Reels, carruseles..." },
-          ] as const
-        ).map(({ key, label, placeholder }) => (
-          <div key={key} className="space-y-1.5">
-            <label className="pl-0.5 text-[10px] font-medium text-white/28">{label}</label>
-            <input
-              value={(pilar as Record<string, string>)[key]}
-              onChange={(e) => onChange(key, e.target.value)}
-              placeholder={placeholder}
-              className="w-full rounded-xl border border-white/7 bg-white/[0.03] px-3 py-2 text-[12px] text-white/70 placeholder:text-white/18 transition-all focus:border-white/14 focus:outline-none"
+          <div className="min-w-0 flex-1">
+            <textarea
+              rows={2}
+              value={pilar.pilar}
+              onChange={(e) => onChange("pilar", e.target.value)}
+              placeholder={`Pilar ${idx + 1}`}
+              className="w-full resize-none bg-transparent text-[15px] font-semibold leading-relaxed text-white/85 placeholder:text-white/25 focus:outline-none"
             />
           </div>
-        ))}
+        </div>
+
+        <div className="space-y-2">
+          <label className="pl-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/34">
+            % Contenido
+          </label>
+          <input
+            value={pilar.porcentaje}
+            onChange={(e) => onChange("porcentaje", e.target.value)}
+            placeholder="20%"
+            className="h-[74px] w-full rounded-lg border border-white/10 bg-black/20 px-4 text-center text-[22px] font-bold tabular-nums text-white/85 placeholder:text-white/20 transition-all focus:border-sky-300/35 focus:bg-black/25 focus:outline-none"
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-4 p-5 lg:grid-cols-2">
+        <div className="space-y-2">
+          <label className="pl-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/34">
+            Canales validados
+          </label>
+          <textarea
+            rows={4}
+            value={pilar.canales}
+            onChange={(e) => onChange("canales", e.target.value)}
+            placeholder="Ej: LinkedIn, Blog, Email Marketing. No agregues canales sin validar."
+            className="w-full resize-none rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-[14px] leading-relaxed text-white/78 placeholder:text-white/20 transition-all focus:border-sky-300/35 focus:bg-black/25 focus:outline-none"
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="pl-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/34">
+            Formatos validados
+          </label>
+          <textarea
+            rows={4}
+            value={pilar.formatos}
+            onChange={(e) => onChange("formatos", e.target.value)}
+            placeholder="Ej: articulos, entrevistas, newsletter. No agregues formatos sin evidencia."
+            className="w-full resize-none rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-[14px] leading-relaxed text-white/78 placeholder:text-white/20 transition-all focus:border-sky-300/35 focus:bg-black/25 focus:outline-none"
+          />
+        </div>
       </div>
     </div>
   );
@@ -230,9 +254,21 @@ function BecSection({
           ) : null}
 
           {hasPillars ? (
-            <div className="space-y-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/28">Pilares de contenido</p>
-              <div className="space-y-3">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/35">
+                    Pilares de contenido
+                  </p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-white/32">
+                    Edita cada pilar con suficiente espacio. Canales y formatos deben quedar validados por alcance, metadata o documentos.
+                  </p>
+                </div>
+                <span className="rounded-lg border border-white/8 bg-white/[0.035] px-3 py-1.5 text-[12px] font-semibold text-white/50">
+                  {formatNumber(bec.pilares.length)} pilares
+                </span>
+              </div>
+              <div className="space-y-4">
                 {bec.pilares.map((pilar, idx) => (
                   <PilarRow
                     key={`pilar-${idx}`}

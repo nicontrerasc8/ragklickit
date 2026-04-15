@@ -5,6 +5,7 @@ import { normalizeCalendarioContent } from "@/lib/calendario/schema";
 import {
   generateCalendarioItemBundle,
 } from "@/lib/calendario/content-studio";
+import { getCompanyWebResearch } from "@/lib/company-web-research";
 
 type Params = {
   params: Promise<{ empresaId: string; calendarioId: string }>;
@@ -38,7 +39,7 @@ export async function POST(request: Request, { params }: Params) {
   const [{ data: empresa }, { data: calendario }] = await Promise.all([
     supabase
       .from("empresa")
-      .select("id, nombre")
+      .select("id, nombre, industria, pais, metadata_json")
       .eq("id", empresaId)
       .eq("agencia_id", agenciaId)
       .maybeSingle(),
@@ -64,11 +65,13 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
+    const webResearchContext = await getCompanyWebResearch(empresa);
     const bundle = await generateCalendarioItemBundle({
       empresaNombre: empresa.nombre,
       calendarioTitulo: calendario.title || "Calendario editorial",
       periodo: normalized.periodo,
       item,
+      webResearchContext,
       existingBundle: item.asset_bundle,
     });
 

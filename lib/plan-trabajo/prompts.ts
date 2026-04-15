@@ -27,6 +27,7 @@ export function buildPlanTrabajoPrompt(params: {
   becContext: string;
   briefContext: string;
   supportDocContext: string;
+  webResearchContext?: string;
   empresaDocsContext: string;
   agenciaDocsContext: string;
   promptContext: string;
@@ -60,6 +61,9 @@ export function buildPlanTrabajoPrompt(params: {
     "DOCUMENTO ADJUNTO PARA ESTA GENERACION:",
     params.supportDocContext || "Sin documento adjunto",
     "",
+    "INVESTIGACION WEB DE EMPRESA:",
+    params.webResearchContext || "Sin investigacion web disponible",
+    "",
     "CONOCIMIENTO DE EMPRESA:",
     params.empresaDocsContext || "Sin documentos de empresa",
     "",
@@ -85,7 +89,8 @@ export function buildPlanTrabajoPrompt(params: {
     "8) Si una recomendacion podria aplicarse igual a tres clientes distintos, no es suficientemente buena. Rehazla con mas precision de contexto y foco comercial.",
     "9) Prioriza decisiones que ayuden a vender mejor, posicionar mejor, coordinar mejor y producir mejor.",
     "10) Si una idea suena elegante pero no cambia decisiones, no aporta.",
-    "11) Si hay conflicto entre sonar sofisticado y sonar util, gana lo util.",
+    "11) Usa la investigacion web para detectar oferta, competencia, benchmarks, SEO, cultura, objeciones y lenguaje real del mercado; no inventes cifras, promociones, precios ni fechas si la fuente no lo confirma.",
+    "12) Si hay conflicto entre sonar sofisticado y sonar util, gana lo util.",
     "",
     "REGLAS POR SECCION:",
     "1) comunidad: usa metricas resumidas por red con campos red, mes_anterior y meta. Las metas deben sonar utiles para gestion, no solo bonitas. Deben orientar foco y expectativa del mes.",
@@ -104,8 +109,8 @@ export function buildPlanTrabajoPrompt(params: {
     "14) Si no puedes justificar por que algo entra al plan este mes, probablemente no deberia entrar.",
     "",
     "REGLAS DE CALIDAD PARA CONTENIDO_SUGERIDO:",
-    "1) Para cada canal con cantidad > 0, entrega varias ideas generales, no una sola si el canal admite mas volumen.",
-    "2) Como referencia, genera entre 3 y 8 ideas por canal segun el peso del canal, sin repetir enfoques.",
+    "1) Para cada canal con cantidad > 0, entrega un banco amplio de ideas generales para que el equipo elija.",
+    "2) Genera entre 9 y 10 ideas por canal, sin repetir enfoques. Aunque el alcance operativo tenga menos piezas, entrega mas opciones para seleccion editorial.",
     "3) NO des captions, guiones, copies, hashtags, enlaces ni piezas ya redactadas.",
     "4) Cada idea debe tener angulo, tension o promesa clara. Evita ideas como 'hablar de beneficios' o 'post institucional'.",
     "5) Si el canal o formato admite video, reparte las ideas entre arquetipos distintos: testimonio, POV ejecutivo, demo corta, tutorial, error comun, mito vs realidad, comparativa, checklist visual, objecion-respuesta, detras de camaras, caso breve, storytelling o recap.",

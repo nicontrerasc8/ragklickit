@@ -108,9 +108,10 @@ export async function generateCalendarioItemBundle(params: {
   calendarioTitulo: string;
   periodo: string;
   item: CalendarioItem;
+  webResearchContext?: string;
   existingBundle?: CalendarioItemAssetBundle | null;
 }) {
-  const { empresaNombre, calendarioTitulo, periodo, item, existingBundle } = params;
+  const { empresaNombre, calendarioTitulo, periodo, item, webResearchContext, existingBundle } = params;
   const imageCount = getImageCount(item);
   const isLongform = isLongformItem(item);
   const contentKind = getContentKind(item);
@@ -125,6 +126,7 @@ export async function generateCalendarioItemBundle(params: {
       item,
       contentKind,
       isLongform,
+      webResearchContext,
       existingBundle,
     }),
     temperature: 0.45,

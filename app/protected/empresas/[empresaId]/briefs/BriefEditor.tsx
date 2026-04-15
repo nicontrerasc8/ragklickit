@@ -231,7 +231,7 @@ export default function BriefEditor({
   initialFormState,
 }: BriefEditorProps) {
   const router = useRouter();
-  const [periodo] = useState(initialPeriodo ?? toMonthInput());
+  const [periodo, setPeriodo] = useState(initialPeriodo ?? toMonthInput());
   const [estado, setEstado] = useState(initialEstado ?? "plan");
   const [formState, setFormState] = useState<BriefFormState>(
     initialFormState ?? makeDefaultBriefForm(),
@@ -306,10 +306,15 @@ export default function BriefEditor({
         <div className="grid gap-4">
           <div className="space-y-1.5">
             <label className="block text-[11px] font-medium text-white/30 pl-0.5">Periodo</label>
-            <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-white/75">
-              {periodo}
-            </div>
-    
+            <input
+              type="month"
+              value={periodo}
+              onChange={(event) => setPeriodo(event.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-white/75 outline-none transition-all focus:border-emerald-300/35 focus:bg-white/[0.06]"
+            />
+            <p className="text-[11px] leading-relaxed text-white/28">
+              Puedes guardar el brief en cualquier mes.
+            </p>
           </div>
           <div className="space-y-2">
             <label className="block text-[11px] font-medium text-white/30 pl-0.5">Estado operativo</label>

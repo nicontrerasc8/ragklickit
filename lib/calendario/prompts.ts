@@ -163,6 +163,7 @@ export function buildCalendarioStudioPrompt(params: {
   item: CalendarioItem;
   contentKind: CalendarioItemAssetBundle["content_kind"];
   isLongform: boolean;
+  webResearchContext?: string;
   existingBundle?: CalendarioItemAssetBundle | null;
 }) {
   const { item, contentKind, isLongform, existingBundle } = params;
@@ -179,6 +180,9 @@ export function buildCalendarioStudioPrompt(params: {
     `CTA base: ${item.CTA || "Sin CTA"}`,
     `Mensaje clave: ${item.mensaje_clave || "Sin mensaje clave"}`,
     "",
+    "INVESTIGACION WEB DE EMPRESA:",
+    params.webResearchContext || "Sin investigacion web disponible",
+    "",
     "OBJETIVO:",
     "Generar un paquete de contenido listo para produccion y publicacion.",
     "Hazlo como una agencia creativa y estrategica de alto nivel, no como generador de copy generico.",
@@ -188,6 +192,7 @@ export function buildCalendarioStudioPrompt(params: {
     "2) Evitar copy generico o relleno; cada salida debe sentirse util y publicable.",
     "3) Visual direction e image_prompt_base deben servir realmente para produccion visual.",
     "4) Buscar angulos que destaquen frente a lo tipico del rubro sin perder claridad comercial.",
+    "5) Usar investigacion web para aterrizar lenguaje, competencia, SEO, objeciones, escenas de uso y referencias culturales; no inventar precios, promociones, fechas ni claims duros.",
     "",
     ...premiumCreativeRules(),
     "",
@@ -239,6 +244,7 @@ export function buildCalendarioDraftPrompt(params: {
   periodo: string;
   empresa: unknown;
   empresaMetadataContext: string;
+  webResearchContext?: string;
   planRoot: Record<string, unknown>;
   alcanceCalendario: Record<string, number>;
   defaultCalendario: unknown;
@@ -257,6 +263,9 @@ export function buildCalendarioDraftPrompt(params: {
     "",
     "METADATA_JSON DE EMPRESA:",
     params.empresaMetadataContext || "{}",
+    "",
+    "INVESTIGACION WEB DE EMPRESA:",
+    params.webResearchContext || "Sin investigacion web disponible",
     "",
     "PLAN DE TRABAJO BASE:",
     compactJson(params.planRoot),
@@ -281,6 +290,7 @@ export function buildCalendarioDraftPrompt(params: {
     "13) Cada pieza debe responder a una funcion estrategica clara: captar atencion, instalar deseo, educar con filo, vencer objeciones, mostrar prueba, activar accion o sostener recordacion.",
     "14) Si una idea podria servir igual para tres marcas distintas, no sirve. Rehazla con mas criterio de marca, mercado y momento.",
     "15) Evita por defecto calendarios llenos de educacion basica, efemerides vacias o frases inspiracionales sin utilidad.",
+    "16) Usa investigacion web para aterrizar lenguaje, competencia, SEO, cultura, objeciones y escenarios reales de compra; no uses datos no verificados como fechas, precios, promociones o claims duros.",
     "",
     "REGLAS CREATIVAS POR TIPO DE PIEZA:",
     "1) Si hay formatos de video, reparte entre tutorial, demo, POV, objecion-respuesta, caso breve, comparativa, mito vs realidad, storytelling, checklist, entrevista corta, behind the scenes, FAQ, error comun, prueba o testimonio.",

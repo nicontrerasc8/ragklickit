@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { regenerateCalendarioContent } from "@/lib/calendario/regeneration";
+import { getCompanyWebResearch } from "@/lib/company-web-research";
 import { createClient } from "@/lib/supabase/server";
 
 type Params = {
@@ -33,7 +34,7 @@ export async function POST(request: Request, { params }: Params) {
   const [{ data: empresa }, { data: calendario }] = await Promise.all([
     supabase
       .from("empresa")
-      .select("id, nombre")
+      .select("id, nombre, industria, pais, metadata_json")
       .eq("id", empresaId)
       .eq("agencia_id", agenciaId)
       .maybeSingle(),
@@ -52,11 +53,21 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
+    const webResearchContext = await getCompanyWebResearch(empresa);
+    const enrichedPrompt = [
+      prompt,
+      "Investigacion web de empresa:",
+      webResearchContext || "Sin investigacion web disponible",
+      "Usa esta informacion solo para enriquecer mercado, competencia, SEO, tono, objeciones y oportunidades. No inventes fechas, precios, promociones ni claims duros.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
     const nextContent = await regenerateCalendarioContent({
       empresaNombre: empresa.nombre,
       calendarioTitulo: calendario.title || "Calendario editorial",
       content: calendario.content_json,
-      customPrompt: prompt,
+      customPrompt: enrichedPrompt,
     });
 
     return NextResponse.json({ content: nextContent });
