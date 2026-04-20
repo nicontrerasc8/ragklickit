@@ -1603,6 +1603,20 @@ function ensurePlanSuggestedContent(plan: Record<string, unknown>) {
     if (!canal || ideas.length === 0) continue;
     byChannel.set(canal, ideas);
   }
+  const productos = Array.isArray(plan.productos_servicios_destacar)
+    ? (plan.productos_servicios_destacar as string[]).filter((item) => typeof item === "string" && item.trim())
+    : [];
+  const mensajes = Array.isArray(plan.mensajes_destacados)
+    ? (plan.mensajes_destacados as string[]).filter((item) => typeof item === "string" && item.trim())
+    : [];
+  const pilares = Array.isArray(plan.pilares_comunicacion)
+    ? (plan.pilares_comunicacion as Record<string, unknown>[])
+        .map((item) => (typeof item.pilar === "string" ? item.pilar.trim() : ""))
+        .filter(Boolean)
+    : [];
+  const productoBase = productos[0] ?? "";
+  const mensajeBase = mensajes[0] ?? "";
+  const pilarBase = pilares[0] ?? "";
 
   const fallbackRows = cantidadContenidos
     .map((row) => {
@@ -1622,18 +1636,18 @@ function ensurePlanSuggestedContent(plan: Record<string, unknown>) {
       }
 
       const formatoBase = formatos[0]?.trim() || "contenido";
-      const ideas = [
-        `${canal}: angulo educativo aplicado al servicio o producto prioritario del mes`,
-        `${canal}: objecion frecuente del cliente convertida en pieza de ${formatoBase}`,
-        `${canal}: caso, prueba o evidencia comercial con promesa clara`,
-        `${canal}: comparativa entre una decision promedio y una decision mejor informada`,
-        `${canal}: error comun del mercado explicado con criterio y salida practica`,
-        `${canal}: mito del rubro desmontado con punto de vista de la marca`,
-        `${canal}: checklist de senales de calidad, confianza o fit antes de comprar`,
-        `${canal}: escena real de decision del comprador y pregunta clave para avanzar`,
-        `${canal}: tension entre costo, riesgo y resultado esperable`,
-        `${canal}: insight de comportamiento que conecte con el momento del mercado`,
-      ].slice(0, 10);
+      const evidenceBase = [productoBase, mensajeBase, pilarBase].filter(Boolean).join(" | ");
+      const ideas = evidenceBase
+        ? [
+            `${canal}: ${productoBase || pilarBase} explicado desde ${mensajeBase || "el foco comercial del mes"} en formato ${formatoBase}`,
+            `${canal}: objecion o duda sobre ${productoBase || pilarBase} respondida con el angulo "${mensajeBase || pilarBase}"`,
+            `${canal}: prueba, caso o evidencia que sostenga ${productoBase || mensajeBase || pilarBase}`,
+            `${canal}: comparativa entre una decision comun del cliente y la alternativa propuesta para ${productoBase || pilarBase}`,
+            `${canal}: checklist de criterios para evaluar ${productoBase || pilarBase} antes de avanzar`,
+          ]
+        : [
+            `${canal}: Pendiente de definir ideas especificas con evidencia de BEC, brief, RAG o metadata antes de calendarizar.`,
+          ];
 
       return { canal, ideas };
     })
@@ -3155,13 +3169,13 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   const empresaDocsContext = (docsEmpresa ?? [])
     .map(
       (doc, index) =>
-        `Documento empresa ${index + 1}: ${doc.title}\n${doc.raw_text.slice(0, 1600)}`,
+        `Documento empresa ${index + 1}: ${doc.title}\nFecha: ${doc.created_at}\n${doc.raw_text.slice(0, 4500)}`,
     )
     .join("\n\n");
   const agenciaDocsContext = (docsAgencia ?? [])
     .map(
       (doc, index) =>
-        `Documento agencia ${index + 1}: ${doc.title}\n${doc.raw_text.slice(0, 1400)}`,
+        `Documento agencia ${index + 1}: ${doc.title}\nFecha: ${doc.created_at}\n${doc.raw_text.slice(0, 3000)}`,
     )
     .join("\n\n");
   const promptContext = (prompts ?? [])
@@ -3193,7 +3207,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 
   const generatedPlan = await aiChat({
     systemPrompt:
-      "Eres PM principal, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Debes producir planes con criterio ejecutivo, inteligencia comercial, lectura de negocio y riqueza editorial real.",
+      "Eres PM principal, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Tu trabajo es convertir BEC, brief, metadata_json, documentos RAG, adjuntos e investigacion web en un plan especifico. Si una recomendacion no tiene base en esas fuentes, la descartas o la marcas como pendiente. No generes relleno generico.",
     userPrompt: buildPlanTrabajoPrompt({
       periodo: brief.periodo,
       agencia: agencia ?? {},
@@ -3209,7 +3223,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
       defaultPlanTrabajo,
       creativeInstructions: customPrompt,
     }),
-    temperature: 0.35,
+    temperature: 0.2,
   });
 
   let contentJson: Record<string, unknown> = { plan_trabajo: defaultPlanTrabajo };

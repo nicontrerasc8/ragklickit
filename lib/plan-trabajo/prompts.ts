@@ -19,6 +19,32 @@ function premiumPlanningRules() {
   ];
 }
 
+function evidenceRules() {
+  return [
+    "MODO DE TRABAJO OBLIGATORIO CON FUENTES:",
+    "1) Antes de redactar, extrae mentalmente los datos concretos disponibles: oferta, productos, servicios, publico, tono, diferenciales, objeciones, restricciones, fechas, cantidades, canales, promociones, riesgos y pendientes.",
+    "2) Cada decision del plan debe nacer de al menos una fuente: metadata_json, BEC, brief, documentos RAG de empresa, documentos RAG de agencia, documento de apoyo o investigacion web.",
+    "3) No uses frases universales si no puedes conectarlas con un dato concreto del cliente. Prohibido rellenar con estrategia generica.",
+    "4) Si una fuente trae nombres de productos, servicios, audiencias, campanas, promociones, objeciones o mensajes, usalos literalmente cuando sean relevantes.",
+    "5) Si hay conflicto entre fuentes, prioriza en este orden: metadata_json operativo > documento de apoyo de esta generacion > brief seleccionado > BEC > documentos de empresa > investigacion web > documentos de agencia > prompts generales.",
+    "6) Si falta informacion para una seccion, escribe un pendiente accionable en pendientes_cliente y usa una respuesta conservadora. No inventes.",
+    "7) En _estrategia_oculta no escribas razonamiento paso a paso. Escribe una sintesis breve de evidencia usada: BEC, brief, metadata, RAG empresa, RAG agencia, adjunto y web.",
+    "8) En notas_adicionales agrega una linea 'Base documental:' con 3 a 6 fuentes concretas usadas, por ejemplo nombres de documentos, BEC, brief o metadata_json.",
+  ];
+}
+
+function antiGenericRules() {
+  return [
+    "FILTRO ANTI-GENERICO:",
+    "1) Rechaza ideas tipo 'beneficios del producto', 'conoce nuestros servicios', 'post institucional', 'tips para clientes', 'mejorar engagement', 'generar comunidad' o 'reforzar marca' si no incluyen angulo especifico del negocio.",
+    "2) Una idea valida debe contener al menos uno de estos elementos: producto/servicio concreto, audiencia concreta, objecion concreta, situacion de uso, prueba, diferenciador, tension competitiva, temporalidad, restriccion operativa o insight del RAG.",
+    "3) Mensajes_destacados deben sonar como direcciones de copy utiles, no slogans vacios. Deben poder convertirse en pauta, venta o contenido.",
+    "4) Pilares_comunicacion no pueden ser categorias blandas. Deben explicar que se comunica y por que importa este mes.",
+    "5) Contenido_sugerido debe ser especifico por canal y cliente. Si reemplazar el nombre del cliente por otro no cambia la idea, la idea es mala.",
+    "6) Productos_servicios_destacar debe salir de BEC, brief, metadata, documentos o web. Si no hay productos/servicios claros, dilo y pide validacion.",
+  ];
+}
+
 export function buildPlanTrabajoPrompt(params: {
   periodo: string;
   agencia: unknown;
@@ -58,8 +84,8 @@ export function buildPlanTrabajoPrompt(params: {
     "BRIEF SELECCIONADO:",
     params.briefContext,
     "",
-    "DOCUMENTO ADJUNTO PARA ESTA GENERACION:",
-    params.supportDocContext || "Sin documento adjunto",
+    "DOCUMENTO DE APOYO PARA ESTA GENERACION (archivo o texto escrito):",
+    params.supportDocContext || "Sin documento de apoyo",
     "",
     "INVESTIGACION WEB DE EMPRESA:",
     params.webResearchContext || "Sin investigacion web disponible",
@@ -77,13 +103,17 @@ export function buildPlanTrabajoPrompt(params: {
     "INSTRUCCIONES CREATIVAS DEL USUARIO:",
     params.creativeInstructions?.trim() || "Sin instrucciones creativas adicionales",
     "",
+    ...evidenceRules(),
+    "",
+    ...antiGenericRules(),
+    "",
     ...premiumPlanningRules(),
     "",
     "REGLAS CLAVE:",
     "0) El plan debe salir de una sintesis real entre DATA INTERNA y WEB: metadata_json, BEC, brief, documentos de empresa/agencia, documento adjunto e investigacion web. Ninguna seccion estrategica debe generarse solo con plantillas generales.",
-    "1) Ajusta el contenido al contexto de Peru.",
+    "1) Ajusta el contenido al contexto de Peru y al rubro real de la empresa.",
     "2) Mantén coherencia total con BEC + BRIEF + metadata_json + evidencia documental.",
-    "3) Si existe documento adjunto, usalo como insumo prioritario para completar y afinar el plan.",
+    "3) Si existe documento adjunto o texto escrito para esta generacion, usalo como insumo prioritario para completar y afinar el plan.",
     "4) Respeta restricciones legales, normativas y tono de voz.",
     "5) Incluye alcance_calendario exactamente como pauta operativa.",
     "6) No inventes datos criticos. Si falta evidencia, deja contenido util pero conservador y alineado.",
@@ -96,18 +126,21 @@ export function buildPlanTrabajoPrompt(params: {
     "13) Si la investigacion web dice que no esta disponible, no finjas haber investigado internet; deja claro en notas_adicionales que el plan depende de fuentes internas y metadata.",
     "14) Si hay conflicto entre sonar sofisticado y sonar util, gana lo util.",
     "15) En notas_adicionales incluye una linea llamada 'Fuentes usadas' que resuma que se cruzo metadata_json, BEC, brief, documentos e investigacion web, sin pegar URLs largas.",
+    "16) No completes arrays por completitud. Completa solo con decisiones defendibles desde las fuentes.",
+    "17) Usa nombres reales, temas reales, lineamientos reales y restricciones reales cuando esten en el RAG. No los reemplaces por abstracciones.",
+    "18) Si el BEC define posicionamiento, tono, personalidad, publico, propuesta de valor u objeciones, esas definiciones deben aparecer aplicadas en mensajes, pilares e ideas.",
     "",
     "REGLAS POR SECCION:",
-    "1) comunidad: usa metricas resumidas por red con campos red, mes_anterior y meta. Las metas deben sonar utiles para gestion, no solo bonitas. Deben orientar foco y expectativa del mes.",
-    "2) resumen_actualizaciones: redacta una sintesis ejecutiva con diagnostico y criterio. observaciones debe contener hallazgos, alertas, oportunidades o decisiones claras. Debe leerse como pensamiento estrategico, no como resumen administrativo.",
-    "3) cantidad_contenidos: usa red, cantidad y formatos esperados. Si cantidad > 0, formatos no puede ir vacio.",
-    "4) pilares_comunicacion: reparte porcentajes con logica estrategica. Los pilares deben ser defendibles, distintos y no copies disfrazados de estrategia. Evita pilares redundantes o blandos.",
-    "5) contenido_sugerido: genera una verdadera lluvia de ideas por canal. Devuelve lineas tematicas, no piezas terminadas. Cada linea debe insinuar una promesa, tension, utilidad o angulo claro.",
-    "6) productos_servicios_destacar y mensajes_destacados: prioriza lo mas vendible, diferenciador o relevante para el periodo. Jerarquiza con criterio comercial, no por completitud.",
+    "1) comunidad: usa metricas resumidas por red con campos red, mes_anterior y meta. Si no hay metricas historicas, no inventes numeros: describe baseline pendiente, meta cualitativa y que validar.",
+    "2) resumen_actualizaciones: redacta una sintesis ejecutiva con diagnostico y criterio. Debe mencionar 2 a 4 evidencias concretas de BEC, brief, metadata, RAG o web. observaciones debe contener hallazgos, alertas, oportunidades o decisiones claras.",
+    "3) cantidad_contenidos: usa red, cantidad y formatos esperados. La cantidad debe respetar alcance_calendario. Si cantidad > 0, formatos no puede ir vacio y debe responder al canal y objetivo.",
+    "4) pilares_comunicacion: reparte porcentajes con logica estrategica. Cada pilar debe incluir foco concreto, no solo categoria. Ejemplo valido: 'Prueba social para reducir objecion de confianza', no 'Confianza'.",
+    "5) contenido_sugerido: genera una verdadera lluvia de ideas por canal. Devuelve lineas tematicas especificas, no piezas terminadas. Cada linea debe incluir producto/servicio, objecion, tension, promesa o situacion concreta cuando exista en las fuentes.",
+    "6) productos_servicios_destacar y mensajes_destacados: prioriza lo mas vendible, diferenciador o relevante para el periodo segun BEC, brief, metadata, RAG o web. Jerarquiza con criterio comercial.",
     "7) fechas_importantes: incluye fechas del mes realmente utiles para planificacion en Peru, mas efemerides, campañas estacionales o hitos del rubro cuando apliquen.",
     "8) promociones: si no aplica, usa exactamente 'NO APLICA'.",
     "9) plan_medios_link: deja URL o texto corto si no existe link final.",
-    "10) notas_adicionales: resume decisiones estrategicas, tensiones, riesgos, oportunidades o focos de ejecucion. No la uses como cajon de sastre vacio. Debe dejar criterio y direccion.",
+    "10) notas_adicionales: resume decisiones estrategicas, tensiones, riesgos, oportunidades o focos de ejecucion. Incluye 'Base documental:' y 'Pendientes de validacion:' si aplica.",
     "11) pendientes_cliente: deben ser accionables, concretos y utiles para desbloquear ejecucion.",
     "12) mensajes_destacados debe sonar usable por contenido, pauta y ventas; evita frases tibias o decorativas.",
     "13) productos_servicios_destacar debe reflejar prioridad comercial del mes, no solo inventario disponible.",
