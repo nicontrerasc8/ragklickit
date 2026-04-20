@@ -75,7 +75,18 @@ type IdeaChecklist = Array<{
 }>;
 
 function buildSuggestedContentFallbackRows(plan: PlanTrabajo) {
-  return plan.cantidad_contenidos
+  const quantityRows =
+    plan.cantidad_contenidos.length > 0
+      ? plan.cantidad_contenidos
+      : Object.entries(plan.alcance_calendario)
+          .filter(([red, cantidad]) => red.trim() && cantidad > 0)
+          .map(([red, cantidad]) => ({
+            red,
+            cantidad,
+            formatos: defaultFormatsForChannel(red),
+          }));
+
+  return quantityRows
     .filter((item) => item.red.trim().length > 0 && item.cantidad > 0)
     .map((item) => {
       const formatoBase = item.formatos[0]?.trim() || "contenido";
@@ -88,6 +99,26 @@ function buildSuggestedContentFallbackRows(plan: PlanTrabajo) {
         ]),
       };
     });
+}
+
+function defaultFormatsForChannel(channel: string) {
+  const normalized = normalizeChannelKey(channel);
+  if (normalized.includes("tiktok") || normalized.includes("youtube")) {
+    return ["Video corto", "Storytelling", "Demo"];
+  }
+  if (normalized.includes("blog")) {
+    return ["Articulo", "Guia", "Checklist"];
+  }
+  if (normalized.includes("email")) {
+    return ["Newsletter", "Secuencia", "Comunicado"];
+  }
+  if (normalized.includes("whatsapp")) {
+    return ["Mensaje directo", "Difusion", "Recordatorio"];
+  }
+  if (normalized.includes("linkedin")) {
+    return ["Post", "Carrusel", "Documento"];
+  }
+  return ["Post", "Carrusel", "Reel"];
 }
 
 function expandIdeaCandidates(canal: string, ideas: string[]) {
@@ -207,7 +238,16 @@ function getChannelLimit(plan: PlanTrabajo, canal: string) {
   const row = plan.cantidad_contenidos.find(
     (item) => normalizeChannelKey(item.red) === normalizedCanal,
   );
-  return row?.cantidad && row.cantidad > 0 ? row.cantidad : null;
+  if (row?.cantidad && row.cantidad > 0) {
+    return row.cantidad;
+  }
+  const alcanceLimit = Object.entries(plan.alcance_calendario).find(
+    ([channel]) => normalizeChannelKey(channel) === normalizedCanal,
+  )?.[1];
+  if (typeof alcanceLimit === "number" && alcanceLimit > 0) {
+    return alcanceLimit;
+  }
+  return null;
 }
 
 function clampIdeaChecklistToLimits(checklist: IdeaChecklist, plan: PlanTrabajo): IdeaChecklist {

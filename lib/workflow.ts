@@ -152,7 +152,7 @@ function deriveDecision(params: {
   warnings: number;
   requiresReview: boolean;
 }) {
-  if (params.blocked) return "blocked" as const;
+  if (params.blocked) return "needs_human_review" as const;
   if (params.requiresReview) return "needs_human_review" as const;
   if (params.warnings > 0) return "approved_with_warnings" as const;
   return "approved" as const;
@@ -165,7 +165,7 @@ function deriveStatus(params: {
   requiresReview: boolean;
 }) {
   if (params.exception) return "exception" as const;
-  if (params.blocked) return "blocked" as const;
+  if (params.blocked) return "needs_review" as const;
   if (params.approved) return "approved" as const;
   if (params.requiresReview) return "needs_review" as const;
   return "draft" as const;
@@ -188,7 +188,21 @@ export function readWorkflow(content: unknown): WorkflowMeta | null {
   if (!workflow.object_type || !workflow.status) {
     return null;
   }
-  return workflow as WorkflowMeta;
+  return {
+    ...workflow,
+    status: workflow.status === "blocked" ? "needs_review" : workflow.status,
+    decision: workflow.decision === "blocked" ? "needs_human_review" : workflow.decision,
+    approval: {
+      ...(workflow.approval ?? {
+        required: true,
+        state: "pending",
+        approved_by: null,
+        approved_at: null,
+        note: null,
+      }),
+      state: workflow.approval?.state === "blocked" ? "pending" : workflow.approval?.state ?? "pending",
+    },
+  } as WorkflowMeta;
 }
 
 export function buildBecWorkflow(params: {
@@ -291,7 +305,7 @@ export function buildBecWorkflow(params: {
     requires_human_review: !params.isLocked || requiresReview,
     approval: {
       required: true,
-      state: params.isLocked ? "approved" : blocked ? "blocked" : "pending",
+      state: params.isLocked ? "approved" : "pending",
       approved_by: approvedBy,
       approved_at: approvedAt,
       note,
@@ -303,7 +317,7 @@ export function buildBecWorkflow(params: {
       params.isLocked && !requiresReview
         ? "BEC validado y utilizable como fuente de verdad."
         : blocked
-          ? "El BEC requiere correcciones antes de operar."
+          ? "El BEC requiere revision y ajustes antes de operar."
           : "El BEC necesita revision humana antes de usarse para planificacion.",
     score_snapshot: {
       confidence,
@@ -936,8 +950,8 @@ export function applyApprovalDecision(params: {
 
   return {
     ...params.workflow,
-    status: hasBlockingAlerts ? "blocked" : "draft",
-    decision: hasBlockingAlerts ? "blocked" : "needs_human_review",
+    status: hasBlockingAlerts ? "needs_review" : "draft",
+    decision: "needs_human_review",
     requires_human_review: true,
     summary:
       params.workflow.object_type === "calendario"
@@ -948,7 +962,7 @@ export function applyApprovalDecision(params: {
     approval: {
       ...params.workflow.approval,
       required: true,
-      state: hasBlockingAlerts ? "blocked" : "pending",
+      state: "pending",
       approved_by: null,
       approved_at: null,
       note,

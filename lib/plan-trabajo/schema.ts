@@ -149,13 +149,52 @@ function filterRowsByScope<T extends { red: string } | { canal: string }>(
   rows: T[],
   alcance: Record<string, number>,
 ) {
-  const allowedChannels = new Set(Object.keys(alcance));
+  const allowedChannels = new Set(Object.keys(alcance).map(normalizeChannelKey));
   if (allowedChannels.size === 0) return rows;
 
   return rows.filter((row) => {
     const channel = "red" in row ? row.red : row.canal;
-    return allowedChannels.has(channel);
+    return allowedChannels.has(normalizeChannelKey(channel));
   });
+}
+
+function normalizeChannelKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cantidadFromAlcance(alcance: Record<string, number>): CantidadContenido[] {
+  return Object.entries(alcance)
+    .filter(([red, cantidad]) => red.trim() && cantidad > 0)
+    .map(([red, cantidad]) => ({
+      red,
+      cantidad,
+      formatos: defaultFormatsForChannel(red),
+    }));
+}
+
+function defaultFormatsForChannel(channel: string) {
+  const normalized = normalizeChannelKey(channel);
+  if (normalized.includes("tiktok") || normalized.includes("youtube")) {
+    return ["Video corto", "Storytelling", "Demo"];
+  }
+  if (normalized.includes("blog")) {
+    return ["Articulo", "Guia", "Checklist"];
+  }
+  if (normalized.includes("email")) {
+    return ["Newsletter", "Secuencia", "Comunicado"];
+  }
+  if (normalized.includes("whatsapp")) {
+    return ["Mensaje directo", "Difusion", "Recordatorio"];
+  }
+  if (normalized.includes("linkedin")) {
+    return ["Post", "Carrusel", "Documento"];
+  }
+  return ["Post", "Carrusel", "Reel"];
 }
 
 export function normalizeAlcanceCalendario(value: unknown) {
@@ -224,7 +263,12 @@ export function normalizePlanTrabajo(input: unknown, fallback?: PlanTrabajo): Pl
   })();
   const cantidad_contenidos = (() => {
     const normalized = normalizeCantidadContenidos(source.cantidad_contenidos);
-    const safeRows = normalized.length > 0 ? normalized : base.cantidad_contenidos;
+    const safeRows =
+      normalized.length > 0
+        ? normalized
+        : base.cantidad_contenidos.length > 0
+          ? base.cantidad_contenidos
+          : cantidadFromAlcance(alcance_calendario);
     return filterRowsByScope(safeRows, alcance_calendario);
   })();
   const contenido_sugerido = (() => {

@@ -1587,9 +1587,26 @@ function enforceCalendarItemsFromPlanSelection(
 }
 
 function ensurePlanSuggestedContent(plan: Record<string, unknown>) {
-  const cantidadContenidos = Array.isArray(plan.cantidad_contenidos)
+  const alcance =
+    plan.alcance_calendario && typeof plan.alcance_calendario === "object"
+      ? (plan.alcance_calendario as Record<string, unknown>)
+      : {};
+  const cantidadFromAlcance = Object.entries(alcance)
+    .map(([red, raw]) => {
+      const cantidad =
+        typeof raw === "number" ? raw : Number.parseInt(String(raw ?? "0").trim(), 10);
+      return {
+        red,
+        cantidad: Number.isFinite(cantidad) ? Math.max(0, Math.trunc(cantidad)) : 0,
+        formatos: ["Post", "Carrusel", "Reel"],
+      };
+    })
+    .filter((row) => row.red.trim() && row.cantidad > 0);
+  const cantidadContenidosRaw = Array.isArray(plan.cantidad_contenidos)
     ? (plan.cantidad_contenidos as Record<string, unknown>[])
     : [];
+  const cantidadContenidos =
+    cantidadContenidosRaw.length > 0 ? cantidadContenidosRaw : cantidadFromAlcance;
   const currentSuggested = Array.isArray(plan.contenido_sugerido)
     ? (plan.contenido_sugerido as Record<string, unknown>[])
     : [];

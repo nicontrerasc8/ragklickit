@@ -3,7 +3,7 @@ import { BRIEF_OBJECTIVE_GROUPS, BRIEF_TEXT_FIELDS, loadBriefForm } from "@/lib/
 import type { RagScoreInsert } from "@/lib/rag/scoring";
 
 type Severity = "low" | "medium" | "high";
-type EvalStatus = "valid" | "valid_with_warnings" | "blocked";
+type EvalStatus = "valid" | "valid_with_warnings";
 
 export type BriefEvaluationContent = {
   brief_evaluation: {
@@ -232,7 +232,7 @@ export function buildBriefEvaluation(params: {
 
   const status: EvalStatus =
     conflicts.some((item) => item.severity === "high") || dataGaps.some((item) => item.impact === "high")
-      ? "blocked"
+      ? "valid_with_warnings"
       : conflicts.length > 0 || dataGaps.length > 0
         ? "valid_with_warnings"
         : "valid";
@@ -240,9 +240,7 @@ export function buildBriefEvaluation(params: {
   const summary =
     status === "valid"
       ? "El brief es consistente con el BEC y tiene señal suficiente para planificar."
-      : status === "valid_with_warnings"
-        ? "El brief es utilizable, pero requiere revisar advertencias antes de ejecutarlo."
-        : "El brief tiene bloqueos o vacios que deben resolverse antes de convertirlo en plan operativo.";
+      : "El brief es utilizable, pero requiere revisar advertencias antes de ejecutarlo.";
 
   return {
     brief_evaluation: {
