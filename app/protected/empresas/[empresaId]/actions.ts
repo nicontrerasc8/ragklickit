@@ -609,6 +609,7 @@ export async function createEmpresaDocument(formData: FormData) {
   const { supabase, agenciaId } = await requireUserAgenciaContext();
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const rawTitle = String(formData.get("title") ?? "").trim();
+  const rawTextInput = sanitizeStoredText(String(formData.get("raw_text") ?? ""));
   const docType = String(formData.get("doc_type") ?? "archivo").trim() || "archivo";
   const uploadedFile = formData.get("file");
 
@@ -627,29 +628,21 @@ export async function createEmpresaDocument(formData: FormData) {
     throw new Error("Empresa no encontrada o sin acceso.");
   }
 
-  if (!(uploadedFile instanceof File) || uploadedFile.size <= 0) {
-    redirect(empresaUploadErrorPath(empresaId, "missing_file"));
-  }
+  let rawText = rawTextInput;
+  let title = rawTitle;
+  let uploadedFileName = "";
+  let uploadedFileSize = 0;
+  let extension = "";
 
-  const extension = uploadedFile.name.split(".").pop()?.toLowerCase() ?? "";
-  if (!new Set(["pdf", "docx"]).has(extension)) {
-    redirect(empresaUploadErrorPath(empresaId, "unsupported_file"));
-  }
+  if (!rawText && uploadedFile instanceof File && uploadedFile.size > 0) {
+    uploadedFileName = uploadedFile.name;
+    uploadedFileSize = uploadedFile.size;
+    extension = uploadedFile.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!new Set(["pdf", "docx"]).has(extension)) {
+      redirect(empresaUploadErrorPath(empresaId, "unsupported_file"));
+    }
 
-  console.info("[upload:empresa] started", {
-    agenciaId,
-    empresaId,
-    fileName: uploadedFile.name,
-    fileSize: uploadedFile.size,
-    fileType: uploadedFile.type || null,
-    extension,
-  });
-
-  let extracted: Awaited<ReturnType<typeof extractSupportedDocumentText>>;
-  try {
-    extracted = await extractSupportedDocumentText(uploadedFile);
-  } catch (error) {
-    logUploadFailure("empresa:extract", error, {
+    console.info("[upload:empresa] started", {
       agenciaId,
       empresaId,
       fileName: uploadedFile.name,
@@ -657,11 +650,31 @@ export async function createEmpresaDocument(formData: FormData) {
       fileType: uploadedFile.type || null,
       extension,
     });
-    redirect(empresaUploadErrorPath(empresaId, "transcribe_elsewhere"));
+
+    let extracted: Awaited<ReturnType<typeof extractSupportedDocumentText>>;
+    try {
+      extracted = await extractSupportedDocumentText(uploadedFile);
+    } catch (error) {
+      logUploadFailure("empresa:extract", error, {
+        agenciaId,
+        empresaId,
+        fileName: uploadedFile.name,
+        fileSize: uploadedFile.size,
+        fileType: uploadedFile.type || null,
+        extension,
+      });
+      redirect(empresaUploadErrorPath(empresaId, "transcribe_elsewhere"));
+    }
+
+    rawText = extracted.rawText;
+    title = rawTitle || extracted.fileName.replace(/\.[^.]+$/, "").trim();
   }
 
-  const title =
-    rawTitle || extracted.fileName.replace(/\.[^.]+$/, "").trim() || "Documento de empresa";
+  if (!rawText) {
+    redirect(empresaUploadErrorPath(empresaId, "missing_content"));
+  }
+
+  title = title || "Documento de empresa";
 
   const { error } = await supabase.from("kb_documents").insert({
     agencia_id: agenciaId,
@@ -670,15 +683,15 @@ export async function createEmpresaDocument(formData: FormData) {
     scope: "org",
     doc_type: docType,
     title,
-    raw_text: extracted.rawText,
+    raw_text: rawText,
   });
 
   if (error) {
     logUploadFailure("empresa:insert", error, {
       agenciaId,
       empresaId,
-      fileName: uploadedFile.name,
-      fileSize: uploadedFile.size,
+      fileName: uploadedFileName || null,
+      fileSize: uploadedFileSize || null,
       extension,
     });
     throw new Error(`No se pudo crear documento: ${error.message}`);
@@ -687,8 +700,8 @@ export async function createEmpresaDocument(formData: FormData) {
   console.info("[upload:empresa] completed", {
     agenciaId,
     empresaId,
-    fileName: uploadedFile.name,
-    rawTextLength: extracted.rawText.length,
+    fileName: uploadedFileName || null,
+    rawTextLength: rawText.length,
   });
 
   revalidateEmpresaRoutes(empresaId);

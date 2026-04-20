@@ -21,18 +21,15 @@ export type IdeaContenido = {
 };
 
 export type PlanTrabajo = {
+  _estrategia_oculta?: string; // <-- NUEVO: Campo de razonamiento (Chain of Thought)
   cliente: string;
   marca: string;
   pais: string;
-  
   version: string;
   periodo: {
     inicio: string;
-
     fin: string;
-    
   };
-
   comunidad: ComunidadMetrica[];
   resumen_actualizaciones: {
     gestion_redes: string;
@@ -182,6 +179,7 @@ export function makeDefaultPlanTrabajo(seed?: Partial<PlanTrabajo>): PlanTrabajo
   const alcanceFromSeed = normalizeAlcanceCalendario(safeSeed.alcance_calendario);
 
   return {
+    _estrategia_oculta: safeSeed._estrategia_oculta ?? "", // <-- NUEVO
     cliente: safeSeed.cliente ?? "",
     marca: safeSeed.marca ?? "",
     pais: safeSeed.pais ?? "Peru",
@@ -236,6 +234,7 @@ export function normalizePlanTrabajo(input: unknown, fallback?: PlanTrabajo): Pl
   })();
 
   return {
+    _estrategia_oculta: asString(source._estrategia_oculta, base._estrategia_oculta), // <-- NUEVO
     cliente: asString(source.cliente, base.cliente),
     marca: asString(source.marca, base.marca),
     pais: asString(source.pais, base.pais),

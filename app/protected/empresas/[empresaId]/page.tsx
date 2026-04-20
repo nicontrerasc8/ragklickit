@@ -18,6 +18,8 @@ function getUploadErrorMessage(code: string | null) {
   switch (code) {
     case "missing_file":
       return "Sube un archivo PDF o Word (.docx) para continuar.";
+    case "missing_content":
+      return "Sube un archivo PDF o Word (.docx) o pega el texto en el cuadro para continuar.";
     case "unsupported_file":
       return "Solo se permiten archivos PDF o Word (.docx) en este formulario.";
     case "transcribe_elsewhere":
@@ -177,7 +179,7 @@ export default async function EmpresaDetailPage({ params, searchParams }: Empres
       <section className="rounded-lg border p-5 space-y-4">
         <h2 className="text-lg font-semibold">Documentos de la empresa</h2>
         <p className="text-sm text-muted-foreground">
-          Sube un archivo y el sistema extraera el texto literalmente, sin IA ni reescritura.
+          Sube un archivo o pega texto directo. El sistema guardara el contenido literalmente, sin IA ni reescritura.
         </p>
 
         {uploadErrorMessage && (
@@ -204,16 +206,21 @@ export default async function EmpresaDetailPage({ params, searchParams }: Empres
           <input
             type="file"
             name="file"
-            required
             accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-foreground"
           />
+          <textarea
+            name="raw_text"
+            rows={7}
+            placeholder="O pega aqui el contenido del documento, acuerdos, FAQs, criterios, promociones o lineamientos de la empresa."
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          />
           <p className="text-xs text-muted-foreground">
-            Formatos soportados: PDF y Word (.docx). Si no defines titulo, se usa el nombre del archivo.
+            Formatos soportados: PDF y Word (.docx). Si no defines titulo, se usa el nombre del archivo o Documento de empresa.
           </p>
           <div>
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-              Subir archivo
+              Guardar documento
             </button>
           </div>
         </form>

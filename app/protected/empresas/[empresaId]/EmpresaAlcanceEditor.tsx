@@ -31,7 +31,7 @@ const ALCANCE_CHANNELS = [
 function clampCount(value: unknown) {
   const numeric = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
   if (!Number.isFinite(numeric)) return 0;
-  return Math.max(0, Math.min(10, Math.trunc(numeric)));
+  return Math.max(0, Math.min(24, Math.trunc(numeric)));
 }
 
 function normalizeChannelName(value: string) {
@@ -139,7 +139,7 @@ export default function EmpresaAlcanceEditor({ empresa }: Props) {
             <span className="text-[11px] text-muted-foreground">{totalAlcance} piezas totales</span>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Ajusta piezas por canal (maximo 10 por canal).
+            Ajusta piezas por canal (maximo 24 por canal).
           </p>
           <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/20 p-3 sm:flex-row">
             <input
@@ -179,7 +179,7 @@ export default function EmpresaAlcanceEditor({ empresa }: Props) {
                   <input
                     type="range"
                     min={0}
-                    max={10}
+                    max={24}
                     step={1}
                     value={value}
                     onChange={(e) => {

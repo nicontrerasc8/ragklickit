@@ -1986,42 +1986,55 @@ export async function createEmpresaDocument(formData: FormData) {
 export async function createAgenciaDocument(formData: FormData) {
   const { supabase, agenciaId } = await requireUserAgenciaContext();
   const rawTitle = String(formData.get("title") ?? "").trim();
+  const rawTextInput = sanitizeStoredText(String(formData.get("raw_text") ?? ""));
   const docType = String(formData.get("doc_type") ?? "archivo").trim() || "archivo";
   const uploadedFile = formData.get("file");
 
-  if (!(uploadedFile instanceof File) || uploadedFile.size <= 0) {
-    redirect(agenciaUploadErrorPath("missing_file"));
-  }
+  let rawText = rawTextInput;
+  let title = rawTitle;
+  let uploadedFileName = "";
+  let uploadedFileSize = 0;
+  let extension = "";
 
-  const extension = uploadedFile.name.split(".").pop()?.toLowerCase() ?? "";
-  if (!new Set(["pdf", "docx"]).has(extension)) {
-    redirect(agenciaUploadErrorPath("unsupported_file"));
-  }
+  if (!rawText && uploadedFile instanceof File && uploadedFile.size > 0) {
+    uploadedFileName = uploadedFile.name;
+    uploadedFileSize = uploadedFile.size;
+    extension = uploadedFile.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!new Set(["pdf", "docx"]).has(extension)) {
+      redirect(agenciaUploadErrorPath("unsupported_file"));
+    }
 
-  console.info("[upload:agencia] started", {
-    agenciaId,
-    fileName: uploadedFile.name,
-    fileSize: uploadedFile.size,
-    fileType: uploadedFile.type || null,
-    extension,
-  });
-
-  let extracted: Awaited<ReturnType<typeof extractSupportedDocumentText>>;
-  try {
-    extracted = await extractSupportedDocumentText(uploadedFile);
-  } catch (error) {
-    logUploadFailure("agencia:extract", error, {
+    console.info("[upload:agencia] started", {
       agenciaId,
       fileName: uploadedFile.name,
       fileSize: uploadedFile.size,
       fileType: uploadedFile.type || null,
       extension,
     });
-    redirect(agenciaUploadErrorPath("transcribe_elsewhere"));
+
+    let extracted: Awaited<ReturnType<typeof extractSupportedDocumentText>>;
+    try {
+      extracted = await extractSupportedDocumentText(uploadedFile);
+    } catch (error) {
+      logUploadFailure("agencia:extract", error, {
+        agenciaId,
+        fileName: uploadedFile.name,
+        fileSize: uploadedFile.size,
+        fileType: uploadedFile.type || null,
+        extension,
+      });
+      redirect(agenciaUploadErrorPath("transcribe_elsewhere"));
+    }
+
+    rawText = extracted.rawText;
+    title = rawTitle || extracted.fileName.replace(/\.[^.]+$/, "").trim();
   }
 
-  const title =
-    rawTitle || extracted.fileName.replace(/\.[^.]+$/, "").trim() || "Documento de agencia";
+  if (!rawText) {
+    redirect(agenciaUploadErrorPath("missing_content"));
+  }
+
+  title = title || "Documento de agencia";
 
   const { error } = await supabase.from("kb_documents").insert({
     agencia_id: agenciaId,
@@ -2030,14 +2043,14 @@ export async function createAgenciaDocument(formData: FormData) {
     scope: "org",
     doc_type: docType,
     title,
-    raw_text: extracted.rawText,
+    raw_text: rawText,
   });
 
   if (error) {
     logUploadFailure("agencia:insert", error, {
       agenciaId,
-      fileName: uploadedFile.name,
-      fileSize: uploadedFile.size,
+      fileName: uploadedFileName || null,
+      fileSize: uploadedFileSize || null,
       extension,
     });
     throw new Error(`No se pudo crear documento de agencia: ${error.message}`);
@@ -2045,8 +2058,8 @@ export async function createAgenciaDocument(formData: FormData) {
 
   console.info("[upload:agencia] completed", {
     agenciaId,
-    fileName: uploadedFile.name,
-    rawTextLength: extracted.rawText.length,
+    fileName: uploadedFileName || null,
+    rawTextLength: rawText.length,
   });
 
   revalidatePath("/protected");
@@ -3045,6 +3058,8 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const briefId = String(formData.get("brief_id") ?? "").trim();
   const supportFile = formData.get("support_file");
+  const supportTitle = String(formData.get("support_title") ?? "").trim();
+  const supportText = sanitizeStoredText(String(formData.get("support_text") ?? ""));
   const customPrompt = String(formData.get("custom_prompt") ?? "").trim();
   const redirectTo = String(formData.get("redirect_to") ?? "").trim();
 
@@ -3106,7 +3121,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
     ? JSON.stringify(becActual.contenido_json, null, 2).slice(0, 14000)
     : "Sin BEC previo";
   const briefContext = JSON.stringify(briefForm, null, 2).slice(0, 14000);
-  let supportDocContext = "";
+  const supportDocContexts: string[] = [];
   if (supportFile instanceof File && supportFile.size > 0) {
     const extension = supportFile.name.split(".").pop()?.toLowerCase() ?? "";
     if (!new Set(["pdf", "docx"]).has(extension)) {
@@ -3130,8 +3145,13 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
       condensed = translated.slice(0, 14000);
     }
 
-    supportDocContext = `Documento adjunto para este plan: ${extracted.fileName}\n${condensed.slice(0, 16000)}`;
+    supportDocContexts.push(`Documento adjunto para este plan: ${extracted.fileName}\n${condensed.slice(0, 16000)}`);
   }
+  if (supportText) {
+    const title = supportTitle || "Texto pegado para este plan";
+    supportDocContexts.push(`Documento escrito para este plan: ${title}\n${supportText.slice(0, 16000)}`);
+  }
+  const supportDocContext = supportDocContexts.join("\n\n");
   const empresaDocsContext = (docsEmpresa ?? [])
     .map(
       (doc, index) =>

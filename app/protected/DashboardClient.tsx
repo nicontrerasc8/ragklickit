@@ -105,6 +105,8 @@ function getUploadErrorMessage(code: string | null) {
   switch (code) {
     case "missing_file":
       return "Sube un archivo PDF o Word (.docx) para continuar.";
+    case "missing_content":
+      return "Sube un archivo PDF o Word (.docx) o pega el texto en el cuadro para continuar.";
     case "unsupported_file":
       return "Solo se permiten archivos PDF o Word (.docx) en este formulario.";
     case "transcribe_elsewhere":
@@ -333,17 +335,22 @@ export default function DashboardClient({
               <input
                 type="file"
                 name="file"
-                required
                 accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 className="w-full rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3 text-sm text-white/70 file:mr-3 file:rounded-full file:border-0 file:bg-amber-500 file:px-4 file:py-2 file:text-xs file:font-semibold file:text-black hover:border-amber-500/30"
               />
+              <textarea
+                name="raw_text"
+                rows={6}
+                placeholder="O pega aqui el contenido del documento, metodologia, FAQ o criterio interno."
+                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 text-sm leading-relaxed text-white/80 placeholder-white/20 outline-none transition focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20"
+              />
               <p className="text-[11px] leading-relaxed text-white/25">
-                Formatos soportados: PDF y Word (.docx).
+                Formatos soportados: PDF y Word (.docx). Tambien puedes pegar texto directo sin archivo.
               </p>
               <div className="flex justify-end">
                 <button className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-xs font-semibold text-black transition hover:bg-amber-400 active:scale-95">
                   <Save size={12} />
-                  Subir archivo
+                  Guardar conocimiento
                 </button>
               </div>
             </form>
