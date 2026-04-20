@@ -90,15 +90,21 @@ function buildSuggestedContentFallbackRows(plan: PlanTrabajo) {
     .filter((item) => item.red.trim().length > 0 && item.cantidad > 0)
     .map((item) => {
       const formatoBase = item.formatos[0]?.trim() || "contenido";
+      const targetCount = getIdeaCandidateCount(item.cantidad);
       return {
         canal: item.red,
         ideas: expandIdeaCandidates(item.red, [
           "Angulo educativo aterrizado al producto o servicio prioritario del mes",
           `Objecion frecuente del cliente convertida en pieza de ${formatoBase}`,
           "Caso, evidencia o prueba comercial con promesa clara",
-        ]),
+        ], targetCount),
       };
     });
+}
+
+function getIdeaCandidateCount(limit: number | null | undefined) {
+  if (!limit || limit <= 0) return 0;
+  return Math.max(2, Math.min(48, Math.trunc(limit) * 2));
 }
 
 function defaultFormatsForChannel(channel: string) {
@@ -121,7 +127,7 @@ function defaultFormatsForChannel(channel: string) {
   return ["Post", "Carrusel", "Reel"];
 }
 
-function expandIdeaCandidates(canal: string, ideas: string[]) {
+function expandIdeaCandidates(canal: string, ideas: string[], targetCount = 10) {
   const cleanIdeas = Array.from(new Set(ideas.map((idea) => idea.trim()).filter(Boolean)));
   const fallbackIdeas = [
     `Criterio de compra que el cliente deberia revisar antes de elegir una solucion en ${canal}`,
@@ -134,16 +140,32 @@ function expandIdeaCandidates(canal: string, ideas: string[]) {
     `Tension entre costo, riesgo y resultado esperable explicada con claridad`,
     `Insight cultural o de comportamiento que conecte con el momento del mercado`,
     `Pregunta provocadora para abrir conversacion con prospectos calificados`,
+    `Historia breve de un cliente que descubre tarde una friccion que pudo evitar`,
+    `Senal concreta para distinguir una promesa superficial de una solucion seria`,
+    `Duda comercial transformada en explicacion simple para avanzar con confianza`,
+    `Situacion cotidiana donde se nota el valor real de la marca`,
+    `Comparacion visual entre lo que el cliente cree necesitar y lo que realmente le conviene`,
+    `Opinion de la marca frente a una mala practica comun del rubro`,
+    `Mini guia para priorizar cuando hay muchas opciones y poco tiempo`,
+    `Antes y despues conceptual de tomar una decision con mejor informacion`,
+    `Pregunta frecuente respondida desde evidencia, proceso o criterio experto`,
+    `Secuencia de pasos para evitar errores antes de contratar o comprar`,
   ];
 
   for (const idea of fallbackIdeas) {
-    if (cleanIdeas.length >= 9) break;
+    if (cleanIdeas.length >= targetCount) break;
     if (!cleanIdeas.includes(idea)) {
       cleanIdeas.push(idea);
     }
   }
 
-  return cleanIdeas.slice(0, 10);
+  let variantIndex = 1;
+  while (cleanIdeas.length < targetCount) {
+    cleanIdeas.push(`${canal}: enfoque editorial adicional ${variantIndex} basado en el objetivo del mes`);
+    variantIndex += 1;
+  }
+
+  return cleanIdeas.slice(0, targetCount);
 }
 
 function buildImportantDatesFallback(plan: PlanTrabajo) {
@@ -185,7 +207,11 @@ function planToIdeaChecklist(plan: PlanTrabajo): IdeaChecklist {
     plan.contenido_sugerido.length > 0
       ? plan.contenido_sugerido.map((row) => ({
           canal: row.canal,
-          ideas: expandIdeaCandidates(row.canal, row.ideas),
+          ideas: expandIdeaCandidates(
+            row.canal,
+            row.ideas,
+            getIdeaCandidateCount(getChannelLimit(plan, row.canal)) || Math.max(10, row.ideas.length),
+          ),
         }))
       : buildSuggestedContentFallbackRows(plan);
 
@@ -400,7 +426,7 @@ function IdeasChecklistField({
           Selecciona las mejores ideas para llevar al calendario.
         </p>
         <p className="mt-1 text-xs leading-relaxed text-sky-100/55">
-          Hay {selected}/{total} ideas seleccionadas. Cada canal permite seleccionar exactamente el maximo definido en Cantidad de Contenidos.
+          Hay {selected}/{total} ideas seleccionadas. Cada canal muestra el doble de ideas que su cantidad definida y permite seleccionar exactamente ese maximo.
         </p>
       </div>
 
@@ -450,7 +476,7 @@ function IdeasChecklistField({
                 {row.ideas.map((idea, ideaIndex) => {
                   const disabledByLimit = !idea.selected && isAtLimit;
                   return (
-                    <label
+                    <div
                       key={idea.id}
                       className={`flex gap-3 rounded-xl border px-3.5 py-3 transition-all ${
                         disabledByLimit
@@ -482,8 +508,29 @@ function IdeasChecklistField({
                         }
                         className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-white/5 accent-emerald-500 disabled:opacity-30"
                       />
-                      <span className="text-sm leading-relaxed">{idea.text}</span>
-                    </label>
+                      <textarea
+                        value={idea.text}
+                        rows={3}
+                        onChange={(event) =>
+                          onChange(
+                            boundedValue.map((currentRow, currentRowIndex) =>
+                              currentRowIndex === channelIndex
+                                ? {
+                                    ...currentRow,
+                                    ideas: currentRow.ideas.map((currentIdea, currentIdeaIndex) =>
+                                      currentIdeaIndex === ideaIndex
+                                        ? { ...currentIdea, text: event.target.value }
+                                        : currentIdea,
+                                    ),
+                                  }
+                                : currentRow,
+                            ),
+                          )
+                        }
+                        className="min-h-20 flex-1 resize-y rounded-lg border border-white/8 bg-black/20 px-3 py-2 text-sm leading-relaxed text-inherit outline-none transition focus:border-emerald-300/35 focus:bg-black/30"
+                        aria-label={`Editar idea ${ideaIndex + 1} de ${row.canal}`}
+                      />
+                    </div>
                   );
                 })}
               </div>

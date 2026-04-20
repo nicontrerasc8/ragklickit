@@ -1634,6 +1634,18 @@ function ensurePlanSuggestedContent(plan: Record<string, unknown>) {
   const productoBase = productos[0] ?? "";
   const mensajeBase = mensajes[0] ?? "";
   const pilarBase = pilares[0] ?? "";
+  const getIdeaCandidateCount = (limit: number) => Math.max(2, Math.min(48, Math.trunc(limit) * 2));
+  const expandServerIdeaCandidates = (canal: string, baseIdeas: string[], targetCount: number) => {
+    const cleanIdeas = Array.from(new Set(baseIdeas.map((idea) => idea.trim()).filter(Boolean)));
+    let variantIndex = 1;
+    while (cleanIdeas.length < targetCount) {
+      cleanIdeas.push(
+        `${canal}: enfoque adicional ${variantIndex} basado en evidencia del plan y objetivo del mes`,
+      );
+      variantIndex += 1;
+    }
+    return cleanIdeas.slice(0, targetCount);
+  };
 
   const fallbackRows = cantidadContenidos
     .map((row) => {
@@ -1654,17 +1666,22 @@ function ensurePlanSuggestedContent(plan: Record<string, unknown>) {
 
       const formatoBase = formatos[0]?.trim() || "contenido";
       const evidenceBase = [productoBase, mensajeBase, pilarBase].filter(Boolean).join(" | ");
-      const ideas = evidenceBase
+      const targetCount = getIdeaCandidateCount(cantidad);
+      const baseIdeas = evidenceBase
         ? [
             `${canal}: ${productoBase || pilarBase} explicado desde ${mensajeBase || "el foco comercial del mes"} en formato ${formatoBase}`,
             `${canal}: objecion o duda sobre ${productoBase || pilarBase} respondida con el angulo "${mensajeBase || pilarBase}"`,
             `${canal}: prueba, caso o evidencia que sostenga ${productoBase || mensajeBase || pilarBase}`,
             `${canal}: comparativa entre una decision comun del cliente y la alternativa propuesta para ${productoBase || pilarBase}`,
             `${canal}: checklist de criterios para evaluar ${productoBase || pilarBase} antes de avanzar`,
+            `${canal}: historia breve que conecte ${productoBase || pilarBase} con una situacion real de compra`,
+            `${canal}: error frecuente que impide valorar ${productoBase || pilarBase} correctamente`,
+            `${canal}: senales para distinguir una buena decision de una decision apresurada`,
           ]
         : [
             `${canal}: Pendiente de definir ideas especificas con evidencia de BEC, brief, RAG o metadata antes de calendarizar.`,
           ];
+      const ideas = expandServerIdeaCandidates(canal, baseIdeas, targetCount);
 
       return { canal, ideas };
     })
