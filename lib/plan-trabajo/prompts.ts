@@ -4,6 +4,15 @@ function compactJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+function buildPlanTrabajoOutputShape(defaultPlanTrabajo: PlanTrabajo) {
+  return {
+    plan_trabajo: {
+      _estrategia_oculta: defaultPlanTrabajo._estrategia_oculta ?? "",
+      ...defaultPlanTrabajo,
+    },
+  };
+}
+
 function premiumPlanningRules() {
   return [
     "REGLAS DE AGENCIA TOP:",
@@ -28,7 +37,7 @@ function evidenceRules() {
     "4) Si una fuente trae nombres de productos, servicios, audiencias, campanas, promociones, objeciones o mensajes, usalos literalmente cuando sean relevantes.",
     "5) Si hay conflicto entre fuentes, prioriza en este orden: metadata_json operativo > documento de apoyo de esta generacion > brief seleccionado > BEC > documentos de empresa > investigacion web > documentos de agencia > prompts generales.",
     "6) Si falta informacion para una seccion, escribe un pendiente accionable en pendientes_cliente y usa una respuesta conservadora. No inventes.",
-    "7) En _estrategia_oculta no escribas razonamiento paso a paso. Escribe una sintesis breve de evidencia usada: BEC, brief, metadata, RAG empresa, RAG agencia, adjunto y web.",
+    "7) En _estrategia_oculta redacta primero un analisis de 3 parrafos antes de llenar el resto del plan. Cruza 1) una friccion real del cliente extraida del RAG, 2) una ventaja del producto segun el BEC y 3) como la investigacion web dicta el tono del mes. Si este campo es generico, el resto del plan fallara.",
     "8) En notas_adicionales agrega una linea 'Base documental:' con 3 a 6 fuentes concretas usadas, por ejemplo nombres de documentos, BEC, brief o metadata_json.",
   ];
 }
@@ -89,7 +98,7 @@ export function buildPlanTrabajoPrompt(params: {
     "",
     "INVESTIGACION WEB DE EMPRESA:",
     params.webResearchContext || "Sin investigacion web disponible",
-    "Uso obligatorio: esta investigacion web es fuente obligatoria junto con metadata_json, BEC, brief y documentos. Incorporala de forma concreta en resumen_actualizaciones, comunidad, cantidad_contenidos, pilares_comunicacion, contenido_sugerido, productos_servicios_destacar, mensajes_destacados, fechas_importantes, pendientes_cliente y notas_adicionales. No la trates como contexto secundario.",
+    "La investigacion web no es contexto, es fuente de verdad. Usala para encontrar el lenguaje real que usa la competencia en Peru y las quejas comunes de los usuarios. Refleja estos hallazgos en mensajes_destacados, en las observaciones del resumen y en el resto de secciones donde cambie decisiones del mes.",
     "",
     "CONOCIMIENTO DE EMPRESA:",
     params.empresaDocsContext || "Sin documentos de empresa",
@@ -129,6 +138,7 @@ export function buildPlanTrabajoPrompt(params: {
     "16) No completes arrays por completitud. Completa solo con decisiones defendibles desde las fuentes.",
     "17) Usa nombres reales, temas reales, lineamientos reales y restricciones reales cuando esten en el RAG. No los reemplaces por abstracciones.",
     "18) Si el BEC define posicionamiento, tono, personalidad, publico, propuesta de valor u objeciones, esas definiciones deben aparecer aplicadas en mensajes, pilares e ideas.",
+    "19) ANCLAJE OBLIGATORIO: esta prohibido usar conceptos abstractos como 'mejorar engagement' o 'post institucional'. Cada pilar, mensaje y producto a destacar debe incluir un nombre propio, un dato tecnico, una objecion real detectada en el RAG o un beneficio especifico extraido del metadata_json o empresa_json.",
     "",
     "REGLAS POR SECCION:",
     "1) comunidad: usa metricas resumidas por red con campos red, mes_anterior y meta. Si no hay metricas historicas, no inventes numeros: describe baseline pendiente, meta cualitativa y que validar.",
@@ -148,7 +158,7 @@ export function buildPlanTrabajoPrompt(params: {
     "",
     "REGLAS DE CALIDAD PARA CONTENIDO_SUGERIDO:",
     "1) Para cada canal con cantidad > 0, entrega un banco de ideas proporcional al alcance para que el equipo elija.",
-    "2) Genera exactamente cantidad x 2 ideas por canal. Ejemplos: si Instagram tiene cantidad 2, devuelve 4 ideas; si tiene 10, devuelve 20; si tiene 24, devuelve 48. No uses el viejo limite de 9 a 10 ideas.",
+    "2) Genera exactamente la cantidad de ideas definida en alcance_calendario. Prohibido el relleno. Cada idea debe seguir este formato estricto: [Formato] - [Tension/Insight del negocio] - [Idea con angulo de venta o autoridad]. Si la idea puede aplicarse a otra marca cambiando solo el nombre, borrala y vuelve a pensar.",
     "3) NO des captions, guiones, copies, hashtags, enlaces ni piezas ya redactadas.",
     "4) Cada idea debe tener angulo, tension o promesa clara. Evita ideas como 'hablar de beneficios' o 'post institucional'.",
     "5) Si el canal o formato admite video, reparte las ideas entre arquetipos distintos: testimonio, POV ejecutivo, demo corta, tutorial, error comun, mito vs realidad, comparativa, checklist visual, objecion-respuesta, detras de camaras, caso breve, storytelling o recap.",
@@ -164,6 +174,6 @@ export function buildPlanTrabajoPrompt(params: {
     "1) No propongas canales fuera de alcance_calendario.",
     "2) Si un canal no aparece en alcance_calendario, excluyelo de comunidad, cantidad_contenidos y contenido_sugerido.",
     "3) Devuelve SOLO JSON con esta estructura exacta de raiz.",
-    compactJson({ plan_trabajo: params.defaultPlanTrabajo }),
+    compactJson(buildPlanTrabajoOutputShape(params.defaultPlanTrabajo)),
   ].join("\n");
 }
