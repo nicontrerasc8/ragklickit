@@ -5,7 +5,11 @@ import { normalizeCalendarioContent } from "@/lib/calendario/schema";
 import {
   generateCalendarioItemBundle,
 } from "@/lib/calendario/content-studio";
-import { getCompanyWebResearch } from "@/lib/company-web-research";
+import {
+  extractUrlsFromText,
+  getCompanyWebResearch,
+  getReferenceLinksWebResearch,
+} from "@/lib/company-web-research";
 
 type Params = {
   params: Promise<{ empresaId: string; calendarioId: string }>;
@@ -15,7 +19,14 @@ function sanitizeText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
-function parseReferenceLinks(value: unknown) {
+function parseReferenceLinks(...values: unknown[]) {
+  const raw = values.filter((value): value is string => typeof value === "string").join("\n");
+  if (!raw) return [] as string[];
+
+  const extracted = extractUrlsFromText(raw);
+  if (extracted.length > 0) return extracted.slice(0, 8);
+
+  const value = raw;
   if (typeof value !== "string") return [] as string[];
 
   const links = value
@@ -34,44 +45,7 @@ function parseReferenceLinks(value: unknown) {
       }
     })
     .filter((entry): entry is string => Boolean(entry))
-    .slice(0, 5);
-}
-
-function htmlToPromptText(html: string) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-async function fetchReferenceLinkContext(links: string[]) {
-  const results = await Promise.all(
-    links.map(async (url) => {
-      try {
-        const response = await fetch(url, {
-          cache: "no-store",
-          signal: AbortSignal.timeout(6000),
-        });
-        if (!response.ok) return `URL: ${url}\nNo se pudo leer (${response.status}).`;
-
-        const contentType = response.headers.get("content-type") ?? "";
-        const raw = (await response.text()).slice(0, 80_000);
-        const text = contentType.includes("text/html") ? htmlToPromptText(raw) : raw.replace(/\s+/g, " ").trim();
-
-        return `URL: ${url}\nExtracto: ${text.slice(0, 3500) || "Sin texto util."}`;
-      } catch {
-        return `URL: ${url}\nNo se pudo leer el contenido. Usa solo el enlace como referencia indicada por el usuario.`;
-      }
-    }),
-  );
-
-  return results.join("\n\n");
+    .slice(0, 8);
 }
 
 export async function POST(request: Request, { params }: Params) {
@@ -94,7 +68,7 @@ export async function POST(request: Request, { params }: Params) {
   const itemId = String(body.itemId ?? "").trim();
   const generationInstructions = sanitizeText(body.generationInstructions, 5000);
   const referenceInfo = sanitizeText(body.referenceInfo, 8000);
-  const referenceLinks = parseReferenceLinks(body.referenceLinks);
+  const referenceLinks = parseReferenceLinks(body.referenceLinks, generationInstructions, referenceInfo);
 
   if (!itemId) {
     return NextResponse.json({ error: "Falta itemId." }, { status: 400 });
@@ -138,7 +112,12 @@ export async function POST(request: Request, { params }: Params) {
   try {
     const [webResearchContext, referenceLinkContext] = await Promise.all([
       getCompanyWebResearch(empresa),
-      fetchReferenceLinkContext(referenceLinks),
+      getReferenceLinksWebResearch({
+        links: referenceLinks,
+        purpose: "generar un bundle de contenido para un item de calendario editorial",
+        userContext: [generationInstructions, referenceInfo].filter(Boolean).join("\n\n"),
+        country: empresa.pais ?? undefined,
+      }),
     ]);
     const bundle = await generateCalendarioItemBundle({
       empresaNombre: empresa.nombre,

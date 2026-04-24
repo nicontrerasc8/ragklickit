@@ -223,6 +223,7 @@ export default function CalendarioClient({
 }: Props) {
   const [selectedPlan, setSelectedPlan] = useState(planes[0]?.id ?? "");
   const [customPrompt, setCustomPrompt] = useState(DEFAULT_CALENDARIO_PROMPT);
+  const [referenceLinks, setReferenceLinks] = useState("");
 
   return (
     <div
@@ -296,6 +297,7 @@ export default function CalendarioClient({
               <input type="hidden" name="empresa_id" value={empresaId} />
               <input type="hidden" name="alcance_calendario" value={alcanceCalendario} />
               <input type="hidden" name="custom_prompt" value={customPrompt} />
+              <input type="hidden" name="reference_links" value={referenceLinks} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex-1">
                   <label className="block text-xs text-white/30 mb-1.5 ml-0.5">Plan base</label>
@@ -334,6 +336,19 @@ export default function CalendarioClient({
                 <p className="mt-2 text-[11px] leading-relaxed text-white/30">
                   Puedes editarlo o borrarlo. La IA usara esta direccion adicional sin romper el alcance, el plan base ni las restricciones del calendario.
                 </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/8 bg-white/2 p-4">
+                <label className="block text-xs font-semibold uppercase tracking-widest text-white/35 mb-2">
+                  Links para investigar
+                </label>
+                <textarea
+                  value={referenceLinks}
+                  onChange={(e) => setReferenceLinks(e.target.value)}
+                  rows={4}
+                  placeholder="Pega links de landings, competencia, referencias o informacion actual. OpenAI web_search los revisara antes de generar."
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition-all resize-none"
+                />
               </div>
 
               <div className="sm:self-end">

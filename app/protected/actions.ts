@@ -10,7 +10,11 @@ import {
   loadBriefForm,
   makeDefaultBriefForm,
 } from "@/lib/brief/schema";
-import { getCompanyWebResearch } from "@/lib/company-web-research";
+import {
+  extractUrlsFromText,
+  getCompanyWebResearch,
+  getReferenceLinksWebResearch,
+} from "@/lib/company-web-research";
 import { buildBecScores, replaceBecScores } from "@/lib/bec/scoring";
 import { deriveMonthlyDeliverablesFromMetadata } from "@/lib/bec/schema";
 import {
@@ -3108,6 +3112,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   const supportFile = formData.get("support_file");
   const supportTitle = String(formData.get("support_title") ?? "").trim();
   const supportText = sanitizeStoredText(String(formData.get("support_text") ?? ""));
+  const supportLinks = String(formData.get("support_links") ?? "").trim();
   const customPrompt = String(formData.get("custom_prompt") ?? "").trim();
   const redirectTo = String(formData.get("redirect_to") ?? "").trim();
 
@@ -3236,7 +3241,22 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   });
 
   const empresaMetadataContext = JSON.stringify(empresaMetadata, null, 2).slice(0, 10000);
-  const webResearchContext = await getCompanyWebResearch(empresa);
+  const referenceLinks = Array.from(
+    new Set([
+      ...extractUrlsFromText(supportLinks),
+      ...extractUrlsFromText(supportText),
+      ...extractUrlsFromText(customPrompt),
+    ]),
+  ).slice(0, 8);
+  const [webResearchContext, referenceLinksContext] = await Promise.all([
+    getCompanyWebResearch(empresa),
+    getReferenceLinksWebResearch({
+      links: referenceLinks,
+      purpose: "generar un plan de trabajo mensual de marketing",
+      userContext: [customPrompt, supportText].filter(Boolean).join("\n\n"),
+      country: empresa.pais ?? undefined,
+    }),
+  ]);
   assertWebResearchAvailable(webResearchContext);
 
   const generatedPlan = await aiChat({
@@ -3250,7 +3270,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
       becContext,
       briefContext,
       supportDocContext,
-      webResearchContext,
+      webResearchContext: [webResearchContext, referenceLinksContext].filter(Boolean).join("\n\n"),
       empresaDocsContext,
       agenciaDocsContext,
       promptContext,
@@ -3337,6 +3357,7 @@ export async function generateCalendarioDraft(formData: FormData) {
   const planArtifactId = String(formData.get("plan_artifact_id") ?? "").trim();
   const alcanceCalendarioRaw = String(formData.get("alcance_calendario") ?? "").trim();
   const customPrompt = String(formData.get("custom_prompt") ?? "").trim();
+  const referenceLinksRaw = String(formData.get("reference_links") ?? "").trim();
   const alcanceFromForm = parseAlcanceCalendario(alcanceCalendarioRaw);
 
   if (!empresaId || !planArtifactId) {
@@ -3446,7 +3467,21 @@ export async function generateCalendarioDraft(formData: FormData) {
   });
 
   const empresaMetadataContext = JSON.stringify(empresaMetadata, null, 2).slice(0, 10000);
-  const webResearchContext = await getCompanyWebResearch(empresa);
+  const referenceLinks = Array.from(
+    new Set([
+      ...extractUrlsFromText(referenceLinksRaw),
+      ...extractUrlsFromText(customPrompt),
+    ]),
+  ).slice(0, 8);
+  const [webResearchContext, referenceLinksContext] = await Promise.all([
+    getCompanyWebResearch(empresa),
+    getReferenceLinksWebResearch({
+      links: referenceLinks,
+      purpose: "generar un calendario editorial mensual desde un plan de trabajo",
+      userContext: customPrompt,
+      country: empresa.pais ?? undefined,
+    }),
+  ]);
 
   const generatedCalendario = await aiChat({
     systemPrompt:
@@ -3455,7 +3490,7 @@ export async function generateCalendarioDraft(formData: FormData) {
       periodo,
       empresa,
       empresaMetadataContext,
-      webResearchContext,
+      webResearchContext: [webResearchContext, referenceLinksContext].filter(Boolean).join("\n\n"),
       planRoot,
       alcanceCalendario: strictAlcanceCalendario,
       defaultCalendario,

@@ -8,7 +8,11 @@ import {
   loadBECState,
   mapAnswerToBec,
 } from "@/lib/bec/schema";
-import { getCompanyWebResearch } from "@/lib/company-web-research";
+import {
+  extractUrlsFromText,
+  getCompanyWebResearch,
+  getReferenceLinksWebResearch,
+} from "@/lib/company-web-research";
 import { aiChat } from "@/lib/ollama/client";
 import { createClient } from "@/lib/supabase/server";
 
@@ -71,6 +75,7 @@ export async function POST(request: Request, { params }: Params) {
     company?: Partial<CompanyForm>;
     bec?: unknown;
     prompt?: string;
+    referenceLinks?: string;
   };
 
   const { data: appUser } = await supabase
@@ -151,14 +156,41 @@ export async function POST(request: Request, { params }: Params) {
     )
     .join("\n\n");
 
-  const webResearchContext = await getCompanyWebResearch({
-    ...empresa,
-    marca: company.marca,
-  });
+  const referenceLinks = Array.from(
+    new Set([
+      ...extractUrlsFromText(body.referenceLinks ?? ""),
+      ...extractUrlsFromText(body.prompt ?? ""),
+      ...extractUrlsFromText(company.objetivo),
+      ...extractUrlsFromText(company.problema),
+    ]),
+  ).slice(0, 8);
+
+  const [webResearchContext, referenceLinksContext] = await Promise.all([
+    getCompanyWebResearch({
+      ...empresa,
+      marca: company.marca,
+    }),
+    getReferenceLinksWebResearch({
+      links: referenceLinks,
+      purpose: "generar o regenerar el BEC estrategico de la empresa",
+      userContext: [
+        body.prompt,
+        company.objetivo ? `Objetivo: ${company.objetivo}` : "",
+        company.problema ? `Problema: ${company.problema}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      country: company.pais,
+    }),
+  ]);
 
   const docContext = [
     "INVESTIGACION WEB DE EMPRESA:",
     webResearchContext,
+    "",
+    "INVESTIGACION WEB DE LINKS DEL USUARIO:",
+    referenceLinksContext || "Sin links adicionales investigados",
+    "",
     "",
     "CONOCIMIENTO DE EMPRESA:",
     companyDocContext || "Sin documentos de empresa",

@@ -335,6 +335,7 @@ export default function BecEditor({
   const [loadingBec, setLoadingBec] = useState(false);
   const [savingBec, setSavingBec] = useState(false);
   const [regenerationPrompt, setRegenerationPrompt] = useState("");
+  const [referenceLinks, setReferenceLinks] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const visibleSections = useMemo(
@@ -392,7 +393,7 @@ export default function BecEditor({
       const res = await fetch(`/api/empresas/${empresaId}/bec/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company, bec, prompt: regenerationPrompt }),
+        body: JSON.stringify({ company, bec, prompt: regenerationPrompt, referenceLinks }),
       });
       const data = (await res.json()) as { error?: string; bec?: BECState };
       if (!res.ok || data.error || !data.bec) {
@@ -503,6 +504,22 @@ export default function BecEditor({
             />
             <p className="text-[11px] leading-relaxed text-white/28">
               Si ya existe un BEC, la IA lo tomara como base y aplicara esta instruccion para regenerarlo.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="pl-0.5 text-[11px] font-medium text-white/40">
+              Links para investigar
+            </label>
+            <textarea
+              rows={3}
+              value={referenceLinks}
+              onChange={(e) => setReferenceLinks(e.target.value)}
+              placeholder="https://sitio.com\nhttps://competidor.com/servicio"
+              className="w-full rounded-2xl border border-white/8 bg-white/[0.03] px-3.5 py-3 text-[12px] leading-relaxed text-white/80 placeholder:text-white/18 transition-all focus:border-white/16 focus:bg-white/[0.045] focus:outline-none resize-none"
+            />
+            <p className="text-[11px] leading-relaxed text-white/28">
+              OpenAI web_search revisara estos links y los usara como fuente para el BEC.
             </p>
           </div>
 

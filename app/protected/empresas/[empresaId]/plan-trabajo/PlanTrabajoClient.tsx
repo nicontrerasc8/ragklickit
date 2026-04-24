@@ -313,8 +313,14 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                       placeholder="O pega aqui los acuerdos, prioridades, tareas, restricciones, promociones o insumos para este plan."
                       className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
                     />
+                    <textarea
+                      name="support_links"
+                      rows={3}
+                      placeholder="Links para investigar con OpenAI web_search: web del cliente, landing, competencia, referencias, articulos..."
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
+                    />
                     <div className="mt-3 flex flex-wrap gap-1.5">
-                      {["PDF", "DOCX", "Texto"].map((label) => (
+                      {["PDF", "DOCX", "Texto", "Links"].map((label) => (
                         <span
                           key={label}
                           className="rounded-full border border-white/8 bg-white/[0.03] px-2 py-1 text-[10px] font-medium text-white/38"
