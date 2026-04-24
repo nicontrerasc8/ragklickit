@@ -109,9 +109,23 @@ export async function generateCalendarioItemBundle(params: {
   periodo: string;
   item: CalendarioItem;
   webResearchContext?: string;
+  userGenerationContext?: {
+    instructions?: string;
+    referenceLinks?: string[];
+    referenceInfo?: string;
+    referenceLinkContext?: string;
+  };
   existingBundle?: CalendarioItemAssetBundle | null;
 }) {
-  const { empresaNombre, calendarioTitulo, periodo, item, webResearchContext, existingBundle } = params;
+  const {
+    empresaNombre,
+    calendarioTitulo,
+    periodo,
+    item,
+    webResearchContext,
+    userGenerationContext,
+    existingBundle,
+  } = params;
   const imageCount = getImageCount(item);
   const isLongform = isLongformItem(item);
   const contentKind = getContentKind(item);
@@ -127,6 +141,7 @@ export async function generateCalendarioItemBundle(params: {
       contentKind,
       isLongform,
       webResearchContext,
+      userGenerationContext,
       existingBundle,
     }),
     temperature: 0.45,

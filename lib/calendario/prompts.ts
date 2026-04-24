@@ -38,6 +38,40 @@ function customPromptLine(customPrompt?: string) {
     : "Direccion adicional del usuario: no hay.";
 }
 
+function userGenerationContextBlock(context?: {
+  instructions?: string;
+  referenceLinks?: string[];
+  referenceInfo?: string;
+  referenceLinkContext?: string;
+}) {
+  const hasContext =
+    context?.instructions?.trim() ||
+    context?.referenceInfo?.trim() ||
+    context?.referenceLinkContext?.trim() ||
+    (context?.referenceLinks?.length ?? 0) > 0;
+
+  if (!hasContext) {
+    return ["CONTEXTO MANUAL DEL USUARIO:", "No hay instrucciones, links ni informacion adicional."];
+  }
+
+  return [
+    "CONTEXTO MANUAL DEL USUARIO:",
+    "Estas instrucciones tienen prioridad sobre la investigacion web general cuando no contradigan restricciones duras del calendario.",
+    "",
+    "INSTRUCCIONES ESPECIFICAS:",
+    context?.instructions?.trim() || "Sin instrucciones especificas.",
+    "",
+    "INFORMACION PEGADA POR EL USUARIO:",
+    context?.referenceInfo?.trim() || "Sin informacion pegada.",
+    "",
+    "LINKS INDICADOS:",
+    context?.referenceLinks?.length ? context.referenceLinks.join("\n") : "Sin links.",
+    "",
+    "EXTRACTOS LEIDOS DE LINKS:",
+    context?.referenceLinkContext?.trim() || "Sin extractos disponibles.",
+  ];
+}
+
 function premiumCreativeRules() {
   return [
     "REGLAS DE AGENCIA TOP:",
@@ -164,6 +198,12 @@ export function buildCalendarioStudioPrompt(params: {
   contentKind: CalendarioItemAssetBundle["content_kind"];
   isLongform: boolean;
   webResearchContext?: string;
+  userGenerationContext?: {
+    instructions?: string;
+    referenceLinks?: string[];
+    referenceInfo?: string;
+    referenceLinkContext?: string;
+  };
   existingBundle?: CalendarioItemAssetBundle | null;
 }) {
   const { item, contentKind, isLongform, existingBundle } = params;
@@ -183,6 +223,8 @@ export function buildCalendarioStudioPrompt(params: {
     "INVESTIGACION WEB DE EMPRESA:",
     params.webResearchContext || "Sin investigacion web disponible",
     "",
+    ...userGenerationContextBlock(params.userGenerationContext),
+    "",
     "OBJETIVO:",
     "Generar un paquete de contenido listo para produccion y publicacion.",
     "Hazlo como una agencia creativa y estrategica de alto nivel, no como generador de copy generico.",
@@ -193,6 +235,8 @@ export function buildCalendarioStudioPrompt(params: {
     "3) Visual direction e image_prompt_base deben servir realmente para produccion visual.",
     "4) Buscar angulos que destaquen frente a lo tipico del rubro sin perder claridad comercial.",
     "5) Usar investigacion web para aterrizar lenguaje, competencia, SEO, objeciones, escenas de uso y referencias culturales; no inventar precios, promociones, fechas ni claims duros.",
+    "6) Si el usuario pego datos, links, beneficios, tono, restricciones u ofertas, usalos como fuente prioritaria y no los reemplaces por supuestos genericos.",
+    "7) Si un link no pudo leerse, no inventes su contenido: usa solo la URL y la informacion pegada por el usuario.",
     "",
     ...premiumCreativeRules(),
     "",

@@ -156,6 +156,9 @@ export default function CalendarioContentStudio({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<"ok" | "err">("ok");
+  const [generationInstructions, setGenerationInstructions] = useState("");
+  const [referenceLinks, setReferenceLinks] = useState("");
+  const [referenceInfo, setReferenceInfo] = useState("");
 
   const selectedItem = items.find((item) => item.id === selectedId) ?? null;
   const studioSections = selectedItem ? getStudioSections(selectedItem, draft) : null;
@@ -180,7 +183,12 @@ export default function CalendarioContentStudio({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ itemId: selectedItem.id }),
+          body: JSON.stringify({
+            itemId: selectedItem.id,
+            generationInstructions,
+            referenceLinks,
+            referenceInfo,
+          }),
         },
       );
       const data = (await response.json()) as {
@@ -471,6 +479,44 @@ export default function CalendarioContentStudio({
 
               {/* ── Scrollable content */}
               <div className="flex-1 overflow-y-auto px-7 py-7">
+                <div className="mb-6">
+                  <EditorSection
+                    label="IA"
+                    title="Instrucciones de generacion"
+                    subtitle="Brief, links y datos que la IA debe respetar para esta pieza."
+                    accentColor={channelConfig.accent}
+                  >
+                    <div className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
+                      <EditableArea
+                        label="Instrucciones precisas"
+                        value={generationInstructions}
+                        rows={5}
+                        accentColor={channelConfig.accent}
+                        onChange={setGenerationInstructions}
+                      />
+                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+                        <EditableArea
+                          label="Links de referencia"
+                          value={referenceLinks}
+                          rows={3}
+                          accentColor={channelConfig.accent}
+                          onChange={setReferenceLinks}
+                          mono
+                          placeholder="https://..."
+                        />
+                        <EditableArea
+                          label="Informacion fuente"
+                          value={referenceInfo}
+                          rows={3}
+                          accentColor={channelConfig.accent}
+                          onChange={setReferenceInfo}
+                          placeholder="Datos, oferta, tono, restricciones, beneficios, ejemplos..."
+                        />
+                      </div>
+                    </div>
+                  </EditorSection>
+                </div>
+
                 {draft ? (
                   <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
                     {/* ── Left column */}
@@ -768,26 +814,6 @@ export default function CalendarioContentStudio({
 
 /* ─── Sub-components ─── */
 
-function StatPill({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
-  return (
-    <div
-      className="rounded-xl px-3.5 py-2.5"
-      style={{
-        background: accent ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
-        border: accent ? "1px solid rgba(52,211,153,0.18)" : "1px solid rgba(255,255,255,0.06)",
-      }}
-    >
-      <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-white/28">{label}</p>
-      <p
-        className="mt-0.5 text-xl font-semibold tabular-nums"
-        style={{ color: accent ? "#6ee7b7" : "rgba(255,255,255,0.85)" }}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
 function MetaTag({
   label,
   value,
@@ -897,6 +923,7 @@ function EditableArea({
   onChange,
   accentColor,
   mono,
+  placeholder,
 }: {
   label: string;
   value: string;
@@ -904,6 +931,7 @@ function EditableArea({
   onChange: (value: string) => void;
   accentColor: string;
   mono?: boolean;
+  placeholder?: string;
 }) {
   return (
     <div className="group space-y-1.5">
@@ -913,6 +941,7 @@ function EditableArea({
       <textarea
         rows={rows}
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className="w-full resize-none rounded-xl border border-white/8 bg-white/[0.03] px-3.5 py-2.5 text-sm leading-7 text-white/85 outline-none transition-all placeholder:text-white/15 hover:border-white/14 focus:bg-white/[0.05]"
         style={{
