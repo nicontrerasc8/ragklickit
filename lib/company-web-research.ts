@@ -32,6 +32,18 @@ type OpenAIWebResponse = {
   output?: OpenAIOutputItem[];
 };
 
+type DirectLinkResearch = {
+  url: string;
+  ok: boolean;
+  title?: string;
+  description?: string;
+  excerpt?: string;
+  error?: string;
+};
+
+const DIRECT_LINK_FETCH_TIMEOUT_MS = 12000;
+const DIRECT_LINK_MAX_CHARS = 4500;
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -63,6 +75,168 @@ export function extractUrlsFromText(value: string) {
         }),
     ),
   );
+}
+
+function normalizeReferenceUrl(value: string) {
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, code: string) => {
+      const parsed = Number.parseInt(code, 10);
+      return Number.isFinite(parsed) ? String.fromCharCode(parsed) : "";
+    })
+    .replace(/&#x([a-f0-9]+);/gi, (_, code: string) => {
+      const parsed = Number.parseInt(code, 16);
+      return Number.isFinite(parsed) ? String.fromCharCode(parsed) : "";
+    });
+}
+
+function extractHtmlMeta(html: string, property: string) {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`<meta[^>]+(?:name|property)=["']${escaped}["'][^>]+content=["']([^"']+)["'][^>]*>`, "i"),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']${escaped}["'][^>]*>`, "i"),
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) return cleanupExtractedText(match[1], 500);
+  }
+
+  return "";
+}
+
+function cleanupExtractedText(value: string, maxChars = DIRECT_LINK_MAX_CHARS) {
+  return decodeHtmlEntities(value)
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim()
+    .slice(0, maxChars);
+}
+
+function extractReadableHtml(html: string) {
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = titleMatch?.[1] ? cleanupExtractedText(titleMatch[1], 220) : "";
+  const description =
+    extractHtmlMeta(html, "description") ||
+    extractHtmlMeta(html, "og:description") ||
+    extractHtmlMeta(html, "twitter:description");
+
+  const mainMatch =
+    html.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
+    html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+    html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  const bodyHtml = mainMatch?.[1] ?? html;
+  const text = bodyHtml
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<header[\s\S]*?<\/header>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|section|article|li|h1|h2|h3|h4)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+
+  return {
+    title,
+    description,
+    excerpt: cleanupExtractedText(text),
+  };
+}
+
+async function fetchDirectReferenceLink(url: string): Promise<DirectLinkResearch> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5",
+        "User-Agent":
+          "Mozilla/5.0 (compatible; RagKlickitContentStudio/1.0; +https://ragklickit.local)",
+      },
+      signal: AbortSignal.timeout(DIRECT_LINK_FETCH_TIMEOUT_MS),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return { url, ok: false, error: `HTTP ${response.status}` };
+    }
+
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    const raw = await response.text();
+
+    if (!raw.trim()) {
+      return { url, ok: false, error: "respuesta vacia" };
+    }
+
+    if (contentType.includes("text/html") || raw.includes("<html") || raw.includes("<body")) {
+      const extracted = extractReadableHtml(raw);
+      if (!extracted.excerpt && !extracted.title && !extracted.description) {
+        return { url, ok: false, error: "HTML sin texto util extraible" };
+      }
+
+      return { url, ok: true, ...extracted };
+    }
+
+    if (contentType.includes("text/") || contentType.includes("application/json")) {
+      return { url, ok: true, excerpt: cleanupExtractedText(raw) };
+    }
+
+    return { url, ok: false, error: `tipo de contenido no legible: ${contentType || "desconocido"}` };
+  } catch (error) {
+    return {
+      url,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function fetchDirectReferenceLinks(links: string[]) {
+  const normalizedLinks = Array.from(new Set(links.map(normalizeReferenceUrl).filter(Boolean)));
+  if (normalizedLinks.length === 0) return [] as DirectLinkResearch[];
+
+  return Promise.all(normalizedLinks.map((link) => fetchDirectReferenceLink(link)));
+}
+
+function formatDirectLinkResearch(results: DirectLinkResearch[]) {
+  if (results.length === 0) return "";
+
+  return [
+    "LECTURA DIRECTA DE LINKS DEL USUARIO:",
+    ...results.map((result, index) => {
+      if (!result.ok) {
+        return [
+          `Fuente ${index + 1}: ${result.url}`,
+          `Estado: no se pudo leer directamente (${result.error || "sin detalle"}).`,
+        ].join("\n");
+      }
+
+      return [
+        `Fuente ${index + 1}: ${result.url}`,
+        result.title ? `Titulo: ${result.title}` : "",
+        result.description ? `Descripcion: ${result.description}` : "",
+        result.excerpt ? `Extracto verificable: ${result.excerpt}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }),
+  ].join("\n\n");
 }
 
 export function assertWebResearchAvailable(webResearchContext: string, artifactLabel = "contenido") {
@@ -227,14 +401,24 @@ export async function getReferenceLinksWebResearch(params: {
   country?: string;
   maxLinks?: number;
 }) {
-  const links = Array.from(new Set(params.links)).slice(0, params.maxLinks ?? 8);
+  const links = Array.from(new Set(params.links.map(normalizeReferenceUrl).filter(Boolean))).slice(
+    0,
+    params.maxLinks ?? 8,
+  );
   if (links.length === 0) return "";
 
+  const directResults = await fetchDirectReferenceLinks(links);
+  const directContext = formatDirectLinkResearch(directResults);
+  const hasDirectContext = directResults.some((result) => result.ok);
+
   const prompt = [
-    "Investiga estos links con web search para usarlos como fuente en una generacion de marketing.",
+    "Investiga estos links para usarlos como fuente en una generacion de marketing.",
     `Uso previsto: ${params.purpose}`,
     params.country ? `Mercado/pais: ${params.country}` : "",
     params.userContext?.trim() ? `Contexto del usuario:\n${params.userContext.trim().slice(0, 5000)}` : "",
+    directContext
+      ? `Ya se hizo una lectura directa de los links. Usala como fuente primaria y complementala solo si hace falta:\n${directContext.slice(0, 10000)}`
+      : "",
     "",
     "LINKS A REVISAR:",
     links.map((link, index) => `${index + 1}. ${link}`).join("\n"),
@@ -253,14 +437,19 @@ export async function getReferenceLinksWebResearch(params: {
   try {
     const result = await requestOpenAIWebSearch({ prompt, country: params.country });
     if (!result.ok) {
-      return `INVESTIGACION DE LINKS NO DISPONIBLE: ${result.error}`;
+      return hasDirectContext
+        ? directContext
+        : `INVESTIGACION DE LINKS NO DISPONIBLE: ${result.error}`;
     }
 
     if (!result.text.trim()) {
-      return "INVESTIGACION DE LINKS NO DISPONIBLE: web_search no devolvio contenido util.";
+      return hasDirectContext
+        ? directContext
+        : "INVESTIGACION DE LINKS NO DISPONIBLE: web_search no devolvio contenido util.";
     }
 
     return [
+      directContext,
       "INVESTIGACION WEB DE LINKS DEL USUARIO:",
       result.text.trim().slice(0, 10000),
       result.sources ? "\nFUENTES RECUPERADAS:\n" + result.sources : "",
@@ -268,7 +457,9 @@ export async function getReferenceLinksWebResearch(params: {
       .join("\n")
       .slice(0, 12000);
   } catch (error) {
-    return `INVESTIGACION DE LINKS NO DISPONIBLE: ${error instanceof Error ? error.message : String(error)}`;
+    return hasDirectContext
+      ? directContext
+      : `INVESTIGACION DE LINKS NO DISPONIBLE: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
