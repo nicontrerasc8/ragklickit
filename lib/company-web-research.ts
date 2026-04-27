@@ -65,6 +65,21 @@ export function extractUrlsFromText(value: string) {
   );
 }
 
+export function assertWebResearchAvailable(webResearchContext: string, artifactLabel = "contenido") {
+  const normalized = webResearchContext.trim().toLowerCase();
+  if (
+    !normalized ||
+    normalized.startsWith("investigacion web no disponible") ||
+    normalized.startsWith("investigación web no disponible") ||
+    normalized.includes("sin investigacion web disponible") ||
+    normalized.includes("sin investigación web disponible")
+  ) {
+    throw new Error(
+      `No se pudo generar ${artifactLabel} porque la investigacion web es obligatoria. Revisa OPENAI_API_KEY, OPENAI_BASE_URL y el acceso a web_search.`,
+    );
+  }
+}
+
 function countryCodeFromPais(pais: string) {
   const normalized = pais
     .normalize("NFD")

@@ -6,6 +6,7 @@ import {
   generateCalendarioItemBundle,
 } from "@/lib/calendario/content-studio";
 import {
+  assertWebResearchAvailable,
   extractUrlsFromText,
   getCompanyWebResearch,
   getReferenceLinksWebResearch,
@@ -119,6 +120,8 @@ export async function POST(request: Request, { params }: Params) {
         country: empresa.pais ?? undefined,
       }),
     ]);
+    assertWebResearchAvailable(webResearchContext, "el post");
+
     const bundle = await generateCalendarioItemBundle({
       empresaNombre: empresa.nombre,
       calendarioTitulo: calendario.title || "Calendario editorial",

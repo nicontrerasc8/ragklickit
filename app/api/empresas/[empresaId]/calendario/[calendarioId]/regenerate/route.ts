@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { regenerateCalendarioContent } from "@/lib/calendario/regeneration";
-import { getCompanyWebResearch } from "@/lib/company-web-research";
+import { assertWebResearchAvailable, getCompanyWebResearch } from "@/lib/company-web-research";
 import { createClient } from "@/lib/supabase/server";
 
 type Params = {
@@ -54,6 +54,8 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
     const webResearchContext = await getCompanyWebResearch(empresa);
+    assertWebResearchAvailable(webResearchContext, "el calendario de posts");
+
     const enrichedPrompt = [
       prompt,
       "Investigacion web de empresa:",

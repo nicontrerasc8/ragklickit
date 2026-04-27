@@ -11,6 +11,7 @@ import {
   makeDefaultBriefForm,
 } from "@/lib/brief/schema";
 import {
+  assertWebResearchAvailable,
   extractUrlsFromText,
   getCompanyWebResearch,
   getReferenceLinksWebResearch,
@@ -701,19 +702,6 @@ function parseAiJsonObject(raw: string): Record<string, unknown> {
       return JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
     }
     throw new Error("La IA no devolvio JSON valido.");
-  }
-}
-
-function assertWebResearchAvailable(webResearchContext: string) {
-  const normalized = webResearchContext.trim().toLowerCase();
-  if (
-    !normalized ||
-    normalized.startsWith("investigacion web no disponible") ||
-    normalized.includes("sin investigacion web disponible")
-  ) {
-    throw new Error(
-      "No se pudo generar el plan porque la investigacion web es obligatoria. Revisa OPENAI_API_KEY, OPENAI_BASE_URL y el acceso a web_search.",
-    );
   }
 }
 
@@ -3257,7 +3245,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
       country: empresa.pais ?? undefined,
     }),
   ]);
-  assertWebResearchAvailable(webResearchContext);
+  assertWebResearchAvailable(webResearchContext, "el plan");
 
   const generatedPlan = await aiChat({
     systemPrompt:
@@ -3482,6 +3470,7 @@ export async function generateCalendarioDraft(formData: FormData) {
       country: empresa.pais ?? undefined,
     }),
   ]);
+  assertWebResearchAvailable(webResearchContext, "el calendario de posts");
 
   const generatedCalendario = await aiChat({
     systemPrompt:
