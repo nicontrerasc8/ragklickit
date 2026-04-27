@@ -132,7 +132,7 @@ export async function generateCalendarioItemBundle(params: {
 
   const contentDraft = await aiChat({
     systemPrompt:
-      "Eres un content strategist senior y copywriter publicitario. Devuelves SOLO JSON valido, especifico y publicable. Usas investigacion como insumo interno, pero el copy final nunca debe sonar a reporte, fuente citada, benchmark ni resumen de web.",
+      "Eres un content strategist senior para marketing. Devuelves SOLO JSON valido, especifico, publicable y sin markdown fuera de los campos permitidos.",
     userPrompt: buildCalendarioStudioPrompt({
       empresaNombre,
       calendarioTitulo,
