@@ -9,6 +9,7 @@ import {
   assertWebResearchAvailable,
   extractUrlsFromText,
   getCompanyWebResearch,
+  getContentStudioWebResearch,
   getReferenceLinksWebResearch,
 } from "@/lib/company-web-research";
 
@@ -25,7 +26,7 @@ function parseReferenceLinks(...values: unknown[]) {
   if (!raw) return [] as string[];
 
   const extracted = extractUrlsFromText(raw);
-  if (extracted.length > 0) return extracted.slice(0, 8);
+  if (extracted.length > 0) return extracted.slice(0, 12);
 
   const value = raw;
   if (typeof value !== "string") return [] as string[];
@@ -46,7 +47,7 @@ function parseReferenceLinks(...values: unknown[]) {
       }
     })
     .filter((entry): entry is string => Boolean(entry))
-    .slice(0, 8);
+    .slice(0, 12);
 }
 
 export async function POST(request: Request, { params }: Params) {
@@ -118,16 +119,47 @@ export async function POST(request: Request, { params }: Params) {
         purpose: "generar un bundle de contenido para un item de calendario editorial",
         userContext: [generationInstructions, referenceInfo].filter(Boolean).join("\n\n"),
         country: empresa.pais ?? undefined,
+        maxLinks: 12,
       }),
     ]);
-    assertWebResearchAvailable(webResearchContext, "el post");
+    const contentStudioWebResearch = await getContentStudioWebResearch({
+      company: empresa,
+      item,
+      calendarioTitulo: calendario.title || "Calendario editorial",
+      periodo: normalized.periodo,
+      generationInstructions,
+      referenceInfo,
+      referenceLinks,
+      referenceLinkContext,
+    });
+    const primaryReferenceLinksContext =
+      referenceLinks.length > 0
+        ? [
+            "FUENTE PRIMARIA DEL POST - LINKS PEGADOS POR EL USUARIO:",
+            referenceLinks.join("\n"),
+            "",
+            "La pieza final debe tomar la informacion, lenguaje, beneficios, restricciones, pruebas y angulos de estos links antes que la investigacion general de empresa.",
+            "Si hay conflicto entre estos links y otra fuente web, prioriza estos links. Si un link no pudo leerse, no inventes su contenido.",
+            referenceLinkContext ? `\nLECTURA / INVESTIGACION DE ESOS LINKS:\n${referenceLinkContext}` : "",
+          ].join("\n")
+        : "";
+
+    const combinedWebResearchContext = [
+      primaryReferenceLinksContext,
+      contentStudioWebResearch,
+      webResearchContext,
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 30000);
+    assertWebResearchAvailable(combinedWebResearchContext, "el post");
 
     const bundle = await generateCalendarioItemBundle({
       empresaNombre: empresa.nombre,
       calendarioTitulo: calendario.title || "Calendario editorial",
       periodo: normalized.periodo,
       item,
-      webResearchContext,
+      webResearchContext: combinedWebResearchContext,
       userGenerationContext: {
         instructions: generationInstructions,
         referenceLinks,

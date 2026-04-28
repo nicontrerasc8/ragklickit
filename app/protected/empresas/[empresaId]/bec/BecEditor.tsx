@@ -519,7 +519,7 @@ export default function BecEditor({
               className="w-full rounded-2xl border border-white/8 bg-white/[0.03] px-3.5 py-3 text-[12px] leading-relaxed text-white/80 placeholder:text-white/18 transition-all focus:border-white/16 focus:bg-white/[0.045] focus:outline-none resize-none"
             />
             <p className="text-[11px] leading-relaxed text-white/28">
-              OpenAI web_search revisara estos links y los usara como fuente para el BEC.
+              Gemini con Google Search revisara estos links y los usara como fuente para el BEC.
             </p>
           </div>
 

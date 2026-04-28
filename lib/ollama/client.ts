@@ -1,4 +1,4 @@
-export type AIProvider = "openai" | "ollama";
+export type AIProvider = "openai" | "ollama" | "gemini";
 
 export type AIChatParams = {
   systemPrompt?: string;
@@ -22,13 +22,27 @@ type OpenAIResponse = {
   }>;
 };
 
+type GeminiResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+};
+
 function resolveAIProvider(): AIProvider {
   const explicit = (process.env.AI_PROVIDER ?? "").trim().toLowerCase();
-  if (explicit === "openai" || explicit === "ollama") {
+  if (explicit === "openai" || explicit === "ollama" || explicit === "gemini") {
     return explicit;
   }
 
-  return process.env.NODE_ENV === "production" ? "openai" : "ollama";
+  return process.env.NODE_ENV === "production" ? "gemini" : "ollama";
+}
+
+function geminiModelPath(model: string) {
+  return model.startsWith("models/") ? model : `models/${model}`;
 }
 
 export function getAIConfig() {
@@ -44,6 +58,22 @@ export function getAIConfig() {
       chatModel,
       embedModel: process.env.OPENAI_EMBED_MODEL ?? null,
       modelLabel: `openai:${chatModel}`,
+    };
+  }
+
+  if (provider === "gemini") {
+    const baseUrl = (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta").replace(
+      /\/$/,
+      "",
+    );
+    const chatModel = process.env.GEMINI_CHAT_MODEL ?? "gemini-2.5-flash";
+
+    return {
+      provider,
+      baseUrl,
+      chatModel,
+      embedModel: process.env.GEMINI_EMBED_MODEL ?? null,
+      modelLabel: `gemini:${chatModel}`,
     };
   }
 
@@ -95,6 +125,41 @@ async function checkOpenAIConnection() {
   return models;
 }
 
+async function checkGeminiConnection() {
+  const { baseUrl, chatModel } = getAIConfig();
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error("Falta GEMINI_API_KEY para usar Gemini.");
+  }
+
+  const response = await fetch(`${baseUrl}/models`, {
+    method: "GET",
+    headers: {
+      "x-goog-api-key": apiKey,
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Gemini no responde (${response.status}): ${errorBody.slice(0, 300)}`);
+  }
+
+  const data = (await response.json()) as {
+    models?: Array<{ name?: string }>;
+  };
+  const models = (data.models ?? [])
+    .map((model) => model.name?.replace(/^models\//, ""))
+    .filter((name): name is string => Boolean(name));
+
+  if (models.length > 0 && !models.includes(chatModel)) {
+    throw new Error(`El modelo configurado no aparece disponible en Gemini: ${chatModel}`);
+  }
+
+  return models;
+}
+
 export async function checkOllamaConnection() {
   const { baseUrl } = getAIConfig();
   const response = await fetch(`${baseUrl}/api/tags`, {
@@ -117,6 +182,9 @@ export async function checkAIConnection() {
   if (config.provider === "openai") {
     return checkOpenAIConnection();
   }
+  if (config.provider === "gemini") {
+    return checkGeminiConnection();
+  }
 
   return checkOllamaConnection();
 }
@@ -128,6 +196,12 @@ async function openAIChat(params: AIChatParams) {
   if (!apiKey) {
     throw new Error("Falta OPENAI_API_KEY para usar OpenAI.");
   }
+
+  console.info("[ai:chat] generando con OpenAI", {
+    provider: "openai",
+    model: chatModel,
+    baseUrl,
+  });
 
   const input = [
     params.systemPrompt
@@ -175,11 +249,70 @@ async function openAIChat(params: AIChatParams) {
   return outputText;
 }
 
+async function geminiChat(params: AIChatParams) {
+  const { baseUrl, chatModel } = getAIConfig();
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error("Falta GEMINI_API_KEY para usar Gemini.");
+  }
+
+  console.info("[ai:chat] generando con Gemini", {
+    provider: "gemini",
+    model: chatModel,
+    baseUrl,
+  });
+
+  const response = await fetch(`${baseUrl}/${geminiModelPath(chatModel)}:generateContent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      ...(params.systemPrompt
+        ? {
+            systemInstruction: {
+              parts: [{ text: params.systemPrompt }],
+            },
+          }
+        : {}),
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: params.userPrompt }],
+        },
+      ],
+      generationConfig: {
+        temperature: params.temperature ?? 0.2,
+      },
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Error en Gemini (${response.status}): ${errorBody.slice(0, 300)}`);
+  }
+
+  const data = (await response.json()) as GeminiResponse;
+  return (
+    data.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text?.trim() ?? "")
+      .filter(Boolean)
+      .join("\n")
+      .trim() ?? ""
+  );
+}
+
 export async function aiChat(params: AIChatParams) {
   const config = getAIConfig();
 
   if (config.provider === "openai") {
     return openAIChat(params);
+  }
+  if (config.provider === "gemini") {
+    return geminiChat(params);
   }
 
   const messages = [
@@ -188,6 +321,12 @@ export async function aiChat(params: AIChatParams) {
       : undefined,
     { role: "user", content: params.userPrompt },
   ].filter(Boolean);
+
+  console.info("[ai:chat] generando con Ollama", {
+    provider: "ollama",
+    model: config.chatModel,
+    baseUrl: config.baseUrl,
+  });
 
   const response = await fetch(`${config.baseUrl}/api/chat`, {
     method: "POST",

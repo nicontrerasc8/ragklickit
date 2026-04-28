@@ -11,25 +11,35 @@
 
 This project now resolves the text-generation provider automatically:
 
-- `production` defaults to `OpenAI`
+- `production` defaults to `Gemini`
 - local development defaults to `Ollama`
-- `AI_PROVIDER` can override either environment with `openai` or `ollama`
+- `AI_PROVIDER` can override either environment with `gemini`, `openai` or `ollama`
 
 For production, set at least these variables:
 
 ```env
-AI_PROVIDER=openai
-OPENAI_API_KEY=...
-OPENAI_CHAT_MODEL=gpt-4.1-mini
-OPENAI_IMAGE_MODEL=gpt-image-1
+AI_PROVIDER=gemini
+WEB_RESEARCH_PROVIDER=gemini
+GEMINI_API_KEY=...
+GEMINI_CHAT_MODEL=gemini-2.5-flash
+GEMINI_WEB_SEARCH_MODEL=gemini-2.5-flash
 ```
 
 Optional variables:
 
 ```env
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+GEMINI_EMBED_MODEL=
 OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=
+OPENAI_CHAT_MODEL=gpt-4.1-mini
+OPENAI_WEB_SEARCH_MODEL=gpt-4.1-mini
+OPENAI_IMAGE_MODEL=gpt-image-1
 OPENAI_EMBED_MODEL=text-embedding-3-small
 ```
+
+Web research uses Gemini Google Search grounding by default when `GEMINI_API_KEY` is present. Set
+`WEB_RESEARCH_PROVIDER=openai` only if you explicitly want to use OpenAI web search.
 
 Use [.env.example](./.env.example) as the reference template.
 

@@ -316,7 +316,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                     <textarea
                       name="support_links"
                       rows={3}
-                      placeholder="Links para investigar con OpenAI web_search: web del cliente, landing, competencia, referencias, articulos..."
+                      placeholder="Links para investigar con Gemini y Google Search: web del cliente, landing, competencia, referencias, articulos..."
                       className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
                     />
                     <div className="mt-3 flex flex-wrap gap-1.5">

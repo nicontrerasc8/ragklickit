@@ -346,7 +346,7 @@ export default function CalendarioClient({
                   value={referenceLinks}
                   onChange={(e) => setReferenceLinks(e.target.value)}
                   rows={4}
-                  placeholder="Pega links de landings, competencia, referencias o informacion actual. OpenAI web_search los revisara antes de generar."
+                  placeholder="Pega links de landings, competencia, referencias o informacion actual. Gemini con Google Search los revisara antes de generar."
                   className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition-all resize-none"
                 />
               </div>

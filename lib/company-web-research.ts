@@ -6,6 +6,20 @@ type ResearchCompany = {
   metadata_json?: unknown;
 };
 
+type ContentStudioResearchItem = {
+  canal?: string | null;
+  pilar?: string | null;
+  tema?: string | null;
+  subtema?: string | null;
+  buyer_persona?: string | null;
+  objetivo_contenido?: string | null;
+  formato?: string | null;
+  titulo_base?: string | null;
+  CTA?: string | null;
+  mensaje_clave?: string | null;
+  hashtags?: unknown;
+};
+
 type OpenAITextContent = {
   type?: string;
   text?: string;
@@ -30,6 +44,24 @@ type OpenAIOutputItem = {
 type OpenAIWebResponse = {
   output_text?: string;
   output?: OpenAIOutputItem[];
+};
+
+type GeminiWebResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+    groundingMetadata?: {
+      groundingChunks?: Array<{
+        web?: {
+          uri?: string;
+          title?: string;
+        };
+      }>;
+    };
+  }>;
 };
 
 type DirectLinkResearch = {
@@ -245,11 +277,12 @@ export function assertWebResearchAvailable(webResearchContext: string, artifactL
     !normalized ||
     normalized.startsWith("investigacion web no disponible") ||
     normalized.startsWith("investigación web no disponible") ||
+    normalized.startsWith("investigacion de links no disponible") ||
     normalized.includes("sin investigacion web disponible") ||
     normalized.includes("sin investigación web disponible")
   ) {
     throw new Error(
-      `No se pudo generar ${artifactLabel} porque la investigacion web es obligatoria. Revisa OPENAI_API_KEY, OPENAI_BASE_URL y el acceso a web_search.`,
+      `No se pudo generar ${artifactLabel} porque la investigacion web es obligatoria. Revisa GEMINI_API_KEY y el acceso a Google Search grounding.`,
     );
   }
 }
@@ -283,6 +316,32 @@ function openAIWebSearchConfig() {
     "gpt-4.1-mini";
 
   return { apiKey, baseUrl, model };
+}
+
+function geminiModelPath(model: string) {
+  return model.startsWith("models/") ? model : `models/${model}`;
+}
+
+function geminiWebSearchConfig() {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const baseUrl = (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta").replace(
+    /\/$/,
+    "",
+  );
+  const model =
+    process.env.GEMINI_WEB_SEARCH_MODEL?.trim() ||
+    process.env.GEMINI_CHAT_MODEL?.trim() ||
+    "gemini-2.5-flash";
+
+  return { apiKey, baseUrl, model };
+}
+
+function resolveWebResearchProvider() {
+  const explicit = (process.env.WEB_RESEARCH_PROVIDER ?? process.env.AI_PROVIDER ?? "").trim().toLowerCase();
+  if (explicit === "openai" || explicit === "gemini") return explicit;
+  if (process.env.GEMINI_API_KEY?.trim()) return "gemini";
+  if (process.env.OPENAI_API_KEY?.trim()) return "openai";
+  return "gemini";
 }
 
 function extractOutputText(data: OpenAIWebResponse) {
@@ -337,6 +396,14 @@ async function requestOpenAIWebSearch(params: {
   const userCountry = params.country ? countryCodeFromPais(params.country) : undefined;
 
   async function requestWithTool(toolType: "web_search" | "web_search_preview") {
+    console.info("[ai:web-research] buscando con OpenAI", {
+      provider: "openai",
+      model,
+      baseUrl,
+      tool: toolType,
+      country: userCountry ?? null,
+    });
+
     return fetch(`${baseUrl}/responses`, {
       method: "POST",
       headers: {
@@ -394,6 +461,114 @@ async function requestOpenAIWebSearch(params: {
   };
 }
 
+function extractGeminiText(data: GeminiWebResponse) {
+  return (
+    data.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text?.trim() ?? "")
+      .filter(Boolean)
+      .join("\n")
+      .trim() ?? ""
+  );
+}
+
+function extractGeminiSources(data: GeminiWebResponse) {
+  const sources = new Map<string, string>();
+
+  for (const candidate of data.candidates ?? []) {
+    for (const chunk of candidate.groundingMetadata?.groundingChunks ?? []) {
+      const url = chunk.web?.uri;
+      if (url) sources.set(url, chunk.web?.title || url);
+    }
+  }
+
+  return Array.from(sources.entries())
+    .slice(0, 10)
+    .map(([url, title]) => `- ${title}: ${url}`)
+    .join("\n");
+}
+
+async function requestGeminiWebSearch(params: {
+  prompt: string;
+  country?: string;
+}) {
+  const { apiKey, baseUrl, model } = geminiWebSearchConfig();
+  if (!apiKey) {
+    return {
+      ok: false as const,
+      error: "falta GEMINI_API_KEY.",
+    };
+  }
+
+  const localizedPrompt = [
+    params.country ? `Mercado/pais prioritario para la busqueda: ${params.country}.` : "",
+    params.prompt,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  console.info("[ai:web-research] buscando con Gemini", {
+    provider: "gemini",
+    model,
+    baseUrl,
+    tool: "google_search",
+    country: params.country ?? null,
+  });
+
+  const response = await fetch(`${baseUrl}/${geminiModelPath(model)}:generateContent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: localizedPrompt }],
+        },
+      ],
+      tools: [{ google_search: {} }],
+      generationConfig: {
+        temperature: 0.15,
+      },
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    return {
+      ok: false as const,
+      error: `Gemini Google Search fallo (${response.status}). ${errorBody.slice(0, 220)}`,
+    };
+  }
+
+  const data = (await response.json()) as GeminiWebResponse;
+  return {
+    ok: true as const,
+    text: extractGeminiText(data),
+    sources: extractGeminiSources(data),
+  };
+}
+
+async function requestWebSearch(params: {
+  prompt: string;
+  country?: string;
+}) {
+  const provider = resolveWebResearchProvider();
+  console.info("[ai:web-research] proveedor resuelto", {
+    provider,
+    preferred: "gemini",
+    country: params.country ?? null,
+  });
+
+  if (provider === "openai") {
+    return requestOpenAIWebSearch(params);
+  }
+
+  return requestGeminiWebSearch(params);
+}
+
 export async function getReferenceLinksWebResearch(params: {
   links: string[];
   purpose: string;
@@ -424,10 +599,11 @@ export async function getReferenceLinksWebResearch(params: {
     links.map((link, index) => `${index + 1}. ${link}`).join("\n"),
     "",
     "Reglas:",
-    "1) Prioriza abrir o buscar esos dominios/URLs concretos.",
+    "1) Estos links son fuente primaria de la pieza. Prioriza abrir, leer o buscar esos dominios/URLs concretos antes que cualquier fuente general.",
     "2) No inventes datos si una pagina no se puede leer.",
     "3) Extrae solo informacion util y verificable para estrategia, copy, oferta, tono, audiencia, restricciones, promociones, claims, SEO, referencias o calendario.",
     "4) Incluye URLs en el memo cuando uses una fuente.",
+    "5) Si el link contiene una landing, articulo, producto, servicio, competencia o referencia creativa, extrae datos aplicables directamente al post: promesa, beneficios, prueba, objeciones, CTA, tono y limites de uso.",
     "",
     "Devuelve un memo compacto en espanol con: fuentes revisadas, datos verificables, insights utiles, restricciones/riesgos y como aplicar esta informacion.",
   ]
@@ -435,7 +611,7 @@ export async function getReferenceLinksWebResearch(params: {
     .join("\n");
 
   try {
-    const result = await requestOpenAIWebSearch({ prompt, country: params.country });
+    const result = await requestWebSearch({ prompt, country: params.country });
     if (!result.ok) {
       return hasDirectContext
         ? directContext
@@ -445,7 +621,7 @@ export async function getReferenceLinksWebResearch(params: {
     if (!result.text.trim()) {
       return hasDirectContext
         ? directContext
-        : "INVESTIGACION DE LINKS NO DISPONIBLE: web_search no devolvio contenido util.";
+        : "INVESTIGACION DE LINKS NO DISPONIBLE: la busqueda web no devolvio contenido util.";
     }
 
     return [
@@ -464,9 +640,10 @@ export async function getReferenceLinksWebResearch(params: {
 }
 
 export async function getCompanyWebResearch(company: ResearchCompany) {
-  const { apiKey } = openAIWebSearchConfig();
+  const provider = resolveWebResearchProvider();
+  const { apiKey } = provider === "openai" ? openAIWebSearchConfig() : geminiWebSearchConfig();
   if (!apiKey) {
-    return "Investigacion web no disponible: falta OPENAI_API_KEY.";
+    return `Investigacion web no disponible: falta ${provider === "openai" ? "OPENAI_API_KEY" : "GEMINI_API_KEY"}.`;
   }
 
   const metadata = asRecord(company.metadata_json);
@@ -508,7 +685,7 @@ export async function getCompanyWebResearch(company: ResearchCompany) {
   ].filter(Boolean).join("\n");
 
   try {
-    const result = await requestOpenAIWebSearch({ prompt, country });
+    const result = await requestWebSearch({ prompt, country });
     if (!result.ok) {
       return `Investigacion web no disponible: ${result.error}`;
     }
@@ -527,5 +704,106 @@ export async function getCompanyWebResearch(company: ResearchCompany) {
     ].join("\n").slice(0, 11000);
   } catch (error) {
     return `Investigacion web no disponible: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export async function getContentStudioWebResearch(params: {
+  company: ResearchCompany;
+  item: ContentStudioResearchItem;
+  calendarioTitulo?: string;
+  periodo?: string;
+  generationInstructions?: string;
+  referenceInfo?: string;
+  referenceLinks?: string[];
+  referenceLinkContext?: string;
+}) {
+  const provider = resolveWebResearchProvider();
+  const { apiKey } = provider === "openai" ? openAIWebSearchConfig() : geminiWebSearchConfig();
+  if (!apiKey) {
+    return `Investigacion web de content studio no disponible: falta ${
+      provider === "openai" ? "OPENAI_API_KEY" : "GEMINI_API_KEY"
+    }.`;
+  }
+
+  const metadata = asRecord(params.company.metadata_json);
+  const brand = firstString(metadata.marca, params.company.marca, params.company.nombre);
+  const name = firstString(params.company.nombre, brand);
+  const industry = firstString(params.company.industria, metadata.industria, metadata.rubro);
+  const country = firstString(params.company.pais, metadata.pais);
+  const website = firstString(metadata.website, metadata.web, metadata.url, metadata.sitio_web);
+  const item = params.item;
+
+  const prompt = [
+    "Haz investigacion web intensiva y especifica para producir UNA pieza de content studio.",
+    "No respondas con copy final. Devuelve un memo de inteligencia para que otro modelo genere el contenido.",
+    "",
+    "EMPRESA / MARCA:",
+    `Empresa: ${name || "No especificado"}`,
+    `Marca: ${brand || "No especificada"}`,
+    `Industria/rubro: ${industry || "No especificado"}`,
+    `Pais/mercado: ${country || "No especificado"}`,
+    website ? `Sitio web sugerido: ${website}` : "",
+    params.calendarioTitulo ? `Calendario: ${params.calendarioTitulo}` : "",
+    params.periodo ? `Periodo: ${params.periodo}` : "",
+    "",
+    "ITEM A PRODUCIR:",
+    `Canal: ${item.canal || "No especificado"}`,
+    `Formato: ${item.formato || "No especificado"}`,
+    `Pilar: ${item.pilar || "No especificado"}`,
+    `Tema: ${item.tema || "No especificado"}`,
+    `Subtema: ${item.subtema || "No especificado"}`,
+    `Titulo base: ${item.titulo_base || "No especificado"}`,
+    `Buyer persona: ${item.buyer_persona || "No especificado"}`,
+    `Objetivo: ${item.objetivo_contenido || "No especificado"}`,
+    `Mensaje clave: ${item.mensaje_clave || "No especificado"}`,
+    `CTA: ${item.CTA || "No especificado"}`,
+    "",
+    params.generationInstructions?.trim()
+      ? `Instrucciones del usuario:\n${params.generationInstructions.trim().slice(0, 4000)}`
+      : "",
+    params.referenceInfo?.trim() ? `Informacion pegada por el usuario:\n${params.referenceInfo.trim().slice(0, 5000)}` : "",
+    params.referenceLinks?.length ? `Links dados por el usuario:\n${params.referenceLinks.join("\n")}` : "",
+    params.referenceLinkContext?.trim()
+      ? `Lectura previa de links del usuario:\n${params.referenceLinkContext.trim().slice(0, 8000)}`
+      : "",
+    "",
+    "BUSQUEDAS QUE DEBES HACER:",
+    "1) Si hay links dados por el usuario, revisa esos links primero y tratalos como fuente primaria del post.",
+    "2) Fuentes oficiales de la marca/empresa y sus productos/servicios relacionados con el item.",
+    "3) Competidores, benchmarks y referentes del mismo mercado o categoria.",
+    "4) Lenguaje real de busqueda: SEO, preguntas frecuentes, objeciones, comparativas, terminos y hashtags utiles.",
+    "5) Señales de plataforma para el canal/formato: hooks, temas, angulos y convenciones que funcionan sin copiar contenido.",
+    "6) Contexto cultural, estacional o de actualidad del mercado si aporta al periodo indicado.",
+    "7) Riesgos: claims que no deben afirmarse, datos pendientes, regulacion, sensibilidad de marca o promesas no verificadas.",
+    "",
+    "SALIDA:",
+    "Devuelve un memo compacto en espanol con secciones: fuentes consultadas con URLs, hallazgos verificables, lenguaje de mercado, competencia/benchmarks, SEO/hashtags, objeciones/deseos del buyer, angulos creativos recomendados, riesgos y datos pendientes.",
+    "Incluye URLs dentro del memo cada vez que uses una fuente. No inventes precios, promociones, fechas, cifras ni claims duros.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  try {
+    const result = await requestWebSearch({ prompt, country });
+    if (!result.ok) {
+      return `Investigacion web de content studio no disponible: ${result.error}`;
+    }
+
+    const memo = result.text.trim().slice(0, 12000);
+    if (!memo) {
+      return "Investigacion web de content studio no disponible: la busqueda no devolvio contenido util.";
+    }
+
+    return [
+      "INVESTIGACION WEB ESPECIFICA PARA CONTENT STUDIO:",
+      memo,
+      result.sources ? "\nFUENTES RECUPERADAS:\n" + result.sources : "",
+    ]
+      .join("\n")
+      .slice(0, 14000);
+  } catch (error) {
+    return `Investigacion web de content studio no disponible: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
   }
 }

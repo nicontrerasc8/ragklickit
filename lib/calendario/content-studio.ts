@@ -26,6 +26,25 @@ function slugify(value: string) {
 }
 
 function safeJsonParse<T>(raw: string, fallback: T): T {
+  const trimmed = raw.trim();
+  const withoutFence = trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const candidates = [
+    trimmed,
+    withoutFence,
+    withoutFence.slice(withoutFence.indexOf("{"), withoutFence.lastIndexOf("}") + 1),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as T;
+    } catch {
+      // Try the next likely JSON boundary.
+    }
+  }
+
   try {
     return JSON.parse(raw) as T;
   } catch {
