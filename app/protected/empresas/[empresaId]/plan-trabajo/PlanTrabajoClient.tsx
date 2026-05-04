@@ -233,7 +233,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
               </h2>
             </div>
             <p className="mb-4 text-[12px] text-white/35 leading-relaxed pl-4.5">
-              La IA usara el contexto de agencia, empresa, BEC, el BRIEF seleccionado y un documento opcional de apoyo para armar el plan.
+              La IA usara el contexto de agencia, empresa, BEC, el BRIEF seleccionado y el apoyo opcional que pegues para armar el plan.
             </p>
 
             {briefs.length > 0 ? (
@@ -291,26 +291,20 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
 
                   <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.025] p-4">
                     <label className="block text-[11px] font-bold uppercase tracking-[0.12em] text-white/32">
-                      Documento de apoyo
+                      Contexto de apoyo
                     </label>
                     <p className="mt-1 text-[12px] leading-relaxed text-white/30">
-                      Adjunta o pega contexto adicional para afinar el plan: brief comercial, pauta, promos o lineamientos.
+                      Pega contexto adicional para afinar el plan: brief comercial, pauta, promos o lineamientos.
                     </p>
                     <input
                       name="support_title"
                       placeholder="Titulo opcional del apoyo"
                       className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
                     />
-                    <input
-                      type="file"
-                      name="support_file"
-                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3 py-3 text-xs text-white/60 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/15 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-violet-100"
-                    />
                     <textarea
                       name="support_text"
                       rows={6}
-                      placeholder="O pega aqui los acuerdos, prioridades, tareas, restricciones, promociones o insumos para este plan."
+                      placeholder="Pega aqui los acuerdos, prioridades, tareas, restricciones, promociones o insumos para este plan."
                       className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
                     />
                     <textarea
@@ -320,7 +314,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                       className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
                     />
                     <div className="mt-3 flex flex-wrap gap-1.5">
-                      {["PDF", "DOCX", "Texto", "Links"].map((label) => (
+                      {["Texto", "Links"].map((label) => (
                         <span
                           key={label}
                           className="rounded-full border border-white/8 bg-white/[0.03] px-2 py-1 text-[10px] font-medium text-white/38"
@@ -350,7 +344,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                 </div>
 
                 <div className="rounded-xl border border-violet-400/12 bg-violet-400/6 px-4 py-3 text-[11px] leading-relaxed text-white/40">
-                  La IA combinara el brief seleccionado con el BEC, contexto documental de empresa/agencia, las instrucciones creativas y el documento de apoyo si existe.
+                  La IA combinara el brief seleccionado con el BEC, contexto documental de empresa/agencia, las instrucciones creativas y el apoyo manual si existe.
                 </div>
 
                 <div className="sm:self-end">

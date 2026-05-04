@@ -496,53 +496,6 @@ async function extractSupportedDocumentText(uploadedFile: File) {
   };
 }
 
-async function maybeTranslateWithOllama(text: string) {
-  const trimmed = text.trim();
-  if (!trimmed) return "";
-
-  const maxChars = 18000;
-  const bounded = trimmed.slice(0, maxChars);
-  const translated = await aiChat({
-    systemPrompt:
-      "Eres un asistente que limpia y traduce contenido documental al espanol neutro. Devuelve solo texto plano.",
-    userPrompt: `Limpia ruido y traduce al espanol neutro sin resumir. Si ya esta en espanol, solo limpiarlo.\n\n${bounded}`,
-    temperature: 0.1,
-  });
-
-  return translated.trim() || bounded;
-}
-
-async function summarizeForRagWithOllama(text: string, title: string, docType: string) {
-  const bounded = text.slice(0, 22000);
-  const summary = await aiChat({
-    systemPrompt:
-      "Eres un analista documental senior para RAG. Extraes senal util, matices, restricciones y contexto operativo. Devuelves solo texto plano en espanol neutro.",
-    userPrompt: [
-      `Documento: ${title}`,
-      `Tipo: ${docType}`,
-      "",
-      "Genera:",
-      "1) Resumen ejecutivo (5-8 lineas, no generico, con criterio de negocio)",
-      "2) Datos y cifras clave",
-      "3) Entidades clave",
-      "4) Riesgos, restricciones o pendientes",
-      "5) Supuestos o ambiguedades detectadas",
-      "",
-      "Reglas:",
-      "- No adornes ni repitas obviedades.",
-      "- Si hay lineamientos, restricciones, disclaimers o temas prohibidos, priorizalos.",
-      "- Si hay datos operativos, cantidades, responsables, plazos o dependencias, destacalos.",
-      "- Si faltan datos, dilo explicitamente.",
-      "",
-      "Contenido:",
-      bounded,
-    ].join("\n"),
-    temperature: 0.1,
-  });
-
-  return summary.trim();
-}
-
 function toSlug(value: string) {
   return value
     .normalize("NFD")
@@ -3097,7 +3050,6 @@ export async function generateBriefDraft(formData: FormData) {
 export async function generatePlanTrabajoDraft(formData: FormData) {
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const briefId = String(formData.get("brief_id") ?? "").trim();
-  const supportFile = formData.get("support_file");
   const supportTitle = String(formData.get("support_title") ?? "").trim();
   const supportText = sanitizeStoredText(String(formData.get("support_text") ?? ""));
   const supportLinks = String(formData.get("support_links") ?? "").trim();
@@ -3163,34 +3115,9 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
     : "Sin BEC previo";
   const briefContext = JSON.stringify(briefForm, null, 2).slice(0, 14000);
   const supportDocContexts: string[] = [];
-  if (supportFile instanceof File && supportFile.size > 0) {
-    const extension = supportFile.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!new Set(["pdf", "docx"]).has(extension)) {
-      throw new Error("El documento de apoyo solo puede ser PDF o Word (.docx).");
-    }
-
-    const extracted = await extractSupportedDocumentText(supportFile);
-    const translated = await maybeTranslateWithOllama(extracted.rawText);
-    let condensed = translated;
-
-    try {
-      const summary = await summarizeForRagWithOllama(
-        translated,
-        extracted.fileName,
-        extracted.extension || "adjunto_plan",
-      );
-      if (summary) {
-        condensed = `RESUMEN\n${summary}\n\nEXTRACTO\n${translated.slice(0, 12000)}`;
-      }
-    } catch {
-      condensed = translated.slice(0, 14000);
-    }
-
-    supportDocContexts.push(`Documento adjunto para este plan: ${extracted.fileName}\n${condensed.slice(0, 16000)}`);
-  }
   if (supportText) {
     const title = supportTitle || "Texto pegado para este plan";
-    supportDocContexts.push(`Documento escrito para este plan: ${title}\n${supportText.slice(0, 16000)}`);
+    supportDocContexts.push(`Contexto escrito para este plan: ${title}\n${supportText.slice(0, 16000)}`);
   }
   const supportDocContext = supportDocContexts.join("\n\n");
   const empresaDocsContext = (docsEmpresa ?? [])
@@ -3249,7 +3176,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 
   const generatedPlan = await aiChat({
     systemPrompt:
-      "Eres PM principal, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Tu trabajo es convertir BEC, brief, metadata_json, documentos RAG, adjuntos e investigacion web en un plan especifico. Si una recomendacion no tiene base en esas fuentes, la descartas o la marcas como pendiente. No generes relleno generico.",
+      "Eres PM principal, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Tu trabajo es convertir BEC, brief, metadata_json, documentos RAG, apoyo manual e investigacion web en un plan especifico. Si una recomendacion no tiene base en esas fuentes, la descartas o la marcas como pendiente. No generes relleno generico.",
     userPrompt: buildPlanTrabajoPrompt({
       periodo: brief.periodo,
       agencia: agencia ?? {},
