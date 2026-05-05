@@ -64,6 +64,16 @@ type GeminiWebResponse = {
   }>;
 };
 
+type GroqWebResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+      citations?: unknown;
+      executed_tools?: unknown;
+    };
+  }>;
+};
+
 type DirectLinkResearch = {
   url: string;
   ok: boolean;
@@ -72,6 +82,8 @@ type DirectLinkResearch = {
   excerpt?: string;
   error?: string;
 };
+
+type WebResearchProvider = "openai" | "gemini" | "groq";
 
 const DIRECT_LINK_FETCH_TIMEOUT_MS = 12000;
 const DIRECT_LINK_MAX_CHARS = 4500;
@@ -282,7 +294,7 @@ export function assertWebResearchAvailable(webResearchContext: string, artifactL
     normalized.includes("sin investigación web disponible")
   ) {
     throw new Error(
-      `No se pudo generar ${artifactLabel} porque la investigacion web es obligatoria. Revisa GEMINI_API_KEY y el acceso a Google Search grounding.`,
+      `No se pudo generar ${artifactLabel} porque la investigacion web es obligatoria. Revisa WEB_RESEARCH_PROVIDER y la API key del proveedor configurado.`,
     );
   }
 }
@@ -318,6 +330,14 @@ function openAIWebSearchConfig() {
   return { apiKey, baseUrl, model };
 }
 
+function groqWebSearchConfig() {
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+  const baseUrl = (process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1").replace(/\/$/, "");
+  const model = process.env.GROQ_WEB_SEARCH_MODEL?.trim() || "groq/compound-mini";
+
+  return { apiKey, baseUrl, model };
+}
+
 function geminiModelPath(model: string) {
   return model.startsWith("models/") ? model : `models/${model}`;
 }
@@ -336,12 +356,25 @@ function geminiWebSearchConfig() {
   return { apiKey, baseUrl, model };
 }
 
-function resolveWebResearchProvider() {
+function resolveWebResearchProvider(): WebResearchProvider {
   const explicit = (process.env.WEB_RESEARCH_PROVIDER ?? process.env.AI_PROVIDER ?? "").trim().toLowerCase();
-  if (explicit === "openai" || explicit === "gemini") return explicit;
+  if (explicit === "openai" || explicit === "gemini" || explicit === "groq") return explicit;
+  if (process.env.GROQ_API_KEY?.trim()) return "groq";
   if (process.env.GEMINI_API_KEY?.trim()) return "gemini";
   if (process.env.OPENAI_API_KEY?.trim()) return "openai";
-  return "gemini";
+  return "groq";
+}
+
+function webResearchApiKeyName(provider: WebResearchProvider) {
+  if (provider === "openai") return "OPENAI_API_KEY";
+  if (provider === "gemini") return "GEMINI_API_KEY";
+  return "GROQ_API_KEY";
+}
+
+function webResearchConfig(provider: WebResearchProvider) {
+  if (provider === "openai") return openAIWebSearchConfig();
+  if (provider === "gemini") return geminiWebSearchConfig();
+  return groqWebSearchConfig();
 }
 
 function extractOutputText(data: OpenAIWebResponse) {
@@ -487,6 +520,51 @@ function extractGeminiSources(data: GeminiWebResponse) {
     .join("\n");
 }
 
+function extractGroqText(data: GroqWebResponse) {
+  return (
+    data.choices
+      ?.map((choice) => choice.message?.content?.trim() ?? "")
+      .filter(Boolean)
+      .join("\n")
+      .trim() ?? ""
+  );
+}
+
+function addGroqSources(value: unknown, sources: Map<string, string>, depth = 0) {
+  if (depth > 4 || value == null) return;
+
+  if (Array.isArray(value)) {
+    for (const item of value) addGroqSources(item, sources, depth + 1);
+    return;
+  }
+
+  const record = asRecord(value);
+  if (Object.keys(record).length === 0) return;
+
+  const url = firstString(record.url, record.uri, record.link);
+  if (url) {
+    sources.set(url, firstString(record.title, record.name, url));
+  }
+
+  for (const key of ["search_results", "results", "sources", "citations", "items"]) {
+    addGroqSources(record[key], sources, depth + 1);
+  }
+}
+
+function extractGroqSources(data: GroqWebResponse) {
+  const sources = new Map<string, string>();
+
+  for (const choice of data.choices ?? []) {
+    addGroqSources(choice.message?.citations, sources);
+    addGroqSources(choice.message?.executed_tools, sources);
+  }
+
+  return Array.from(sources.entries())
+    .slice(0, 10)
+    .map(([url, title]) => `- ${title}: ${url}`)
+    .join("\n");
+}
+
 async function requestGeminiWebSearch(params: {
   prompt: string;
   country?: string;
@@ -551,6 +629,64 @@ async function requestGeminiWebSearch(params: {
   };
 }
 
+async function requestGroqWebSearch(params: {
+  prompt: string;
+  country?: string;
+}) {
+  const { apiKey, baseUrl, model } = groqWebSearchConfig();
+  if (!apiKey) {
+    return {
+      ok: false as const,
+      error: "falta GROQ_API_KEY.",
+    };
+  }
+
+  const localizedPrompt = [
+    params.country ? `Mercado/pais prioritario para la busqueda: ${params.country}.` : "",
+    params.prompt,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  console.info("[ai:web-research] buscando con Groq", {
+    provider: "groq",
+    model,
+    baseUrl,
+    tool: "compound_web_search",
+    country: params.country ?? null,
+  });
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: localizedPrompt }],
+      temperature: 0.15,
+      citation_options: "enabled",
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    return {
+      ok: false as const,
+      error: `Groq Compound fallo (${response.status}). ${errorBody.slice(0, 220)}`,
+    };
+  }
+
+  const data = (await response.json()) as GroqWebResponse;
+  return {
+    ok: true as const,
+    text: extractGroqText(data),
+    sources: extractGroqSources(data),
+  };
+}
+
 async function requestWebSearch(params: {
   prompt: string;
   country?: string;
@@ -558,12 +694,15 @@ async function requestWebSearch(params: {
   const provider = resolveWebResearchProvider();
   console.info("[ai:web-research] proveedor resuelto", {
     provider,
-    preferred: "gemini",
+    preferred: "groq",
     country: params.country ?? null,
   });
 
   if (provider === "openai") {
     return requestOpenAIWebSearch(params);
+  }
+  if (provider === "groq") {
+    return requestGroqWebSearch(params);
   }
 
   return requestGeminiWebSearch(params);
@@ -641,9 +780,9 @@ export async function getReferenceLinksWebResearch(params: {
 
 export async function getCompanyWebResearch(company: ResearchCompany) {
   const provider = resolveWebResearchProvider();
-  const { apiKey } = provider === "openai" ? openAIWebSearchConfig() : geminiWebSearchConfig();
+  const { apiKey } = webResearchConfig(provider);
   if (!apiKey) {
-    return `Investigacion web no disponible: falta ${provider === "openai" ? "OPENAI_API_KEY" : "GEMINI_API_KEY"}.`;
+    return `Investigacion web no disponible: falta ${webResearchApiKeyName(provider)}.`;
   }
 
   const metadata = asRecord(company.metadata_json);
@@ -718,11 +857,9 @@ export async function getContentStudioWebResearch(params: {
   referenceLinkContext?: string;
 }) {
   const provider = resolveWebResearchProvider();
-  const { apiKey } = provider === "openai" ? openAIWebSearchConfig() : geminiWebSearchConfig();
+  const { apiKey } = webResearchConfig(provider);
   if (!apiKey) {
-    return `Investigacion web de content studio no disponible: falta ${
-      provider === "openai" ? "OPENAI_API_KEY" : "GEMINI_API_KEY"
-    }.`;
+    return `Investigacion web de content studio no disponible: falta ${webResearchApiKeyName(provider)}.`;
   }
 
   const metadata = asRecord(params.company.metadata_json);

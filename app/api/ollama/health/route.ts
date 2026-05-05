@@ -11,7 +11,10 @@ export async function GET() {
       provider: config.provider,
       baseUrl: config.baseUrl,
       chatModel: config.chatModel,
+      embedProvider: config.embedProvider,
+      embedBaseUrl: config.embedBaseUrl,
       embedModel: config.embedModel,
+      embedModelLabel: config.embedModelLabel,
       models,
     });
   } catch (error) {

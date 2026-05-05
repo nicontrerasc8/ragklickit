@@ -3176,7 +3176,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 
   const generatedPlan = await aiChat({
     systemPrompt:
-      "Eres PM principal, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Tu trabajo es convertir BEC, brief, metadata_json, documentos RAG, apoyo manual e investigacion web en un plan especifico. Si una recomendacion no tiene base en esas fuentes, la descartas o la marcas como pendiente. No generes relleno generico.",
+      "Eres PM principal, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Tu trabajo es convertir BEC, brief, metadata_json, documentos ya cargados, apoyo manual e investigacion web en un plan especifico. No necesitas que el usuario suba archivos en esta generacion: usa el conocimiento documental disponible. Si una recomendacion no tiene base en esas fuentes, la descartas o la marcas como pendiente. No generes relleno generico.",
     userPrompt: buildPlanTrabajoPrompt({
       periodo: brief.periodo,
       agencia: agencia ?? {},

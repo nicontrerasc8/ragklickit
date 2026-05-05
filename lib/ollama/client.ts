@@ -1,4 +1,5 @@
-export type AIProvider = "openai" | "ollama" | "gemini";
+export type AIProvider = "openai" | "ollama" | "gemini" | "groq";
+export type AIEmbeddingProvider = "openai" | "ollama" | "gemini";
 
 export type AIChatParams = {
   systemPrompt?: string;
@@ -32,21 +33,87 @@ type GeminiResponse = {
   }>;
 };
 
+type GroqResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+};
+
 function resolveAIProvider(): AIProvider {
   const explicit = (process.env.AI_PROVIDER ?? "").trim().toLowerCase();
-  if (explicit === "openai" || explicit === "ollama" || explicit === "gemini") {
+  if (explicit === "openai" || explicit === "ollama" || explicit === "gemini" || explicit === "groq") {
     return explicit;
   }
 
-  return process.env.NODE_ENV === "production" ? "gemini" : "ollama";
+  return "groq";
 }
 
 function geminiModelPath(model: string) {
   return model.startsWith("models/") ? model : `models/${model}`;
 }
 
+function resolveEmbeddingProvider(chatProvider: AIProvider): AIEmbeddingProvider | null {
+  const explicit = (process.env.EMBED_PROVIDER ?? process.env.AI_EMBED_PROVIDER ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (explicit === "openai" || explicit === "ollama" || explicit === "gemini") {
+    return explicit;
+  }
+
+  if (chatProvider === "groq") {
+    return null;
+  }
+
+  return chatProvider;
+}
+
+function getEmbeddingConfig(chatProvider: AIProvider) {
+  const provider = resolveEmbeddingProvider(chatProvider);
+
+  if (!provider) {
+    return {
+      embedProvider: null,
+      embedBaseUrl: null,
+      embedModel: null,
+      embedModelLabel: null,
+    };
+  }
+
+  if (provider === "openai") {
+    return {
+      embedProvider: provider,
+      embedBaseUrl: (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, ""),
+      embedModel: process.env.OPENAI_EMBED_MODEL ?? "text-embedding-3-small",
+      embedModelLabel: `openai:${process.env.OPENAI_EMBED_MODEL ?? "text-embedding-3-small"}`,
+    };
+  }
+
+  if (provider === "gemini") {
+    return {
+      embedProvider: provider,
+      embedBaseUrl: (process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta").replace(
+        /\/$/,
+        "",
+      ),
+      embedModel: process.env.GEMINI_EMBED_MODEL ?? "gemini-embedding-001",
+      embedModelLabel: `gemini:${process.env.GEMINI_EMBED_MODEL ?? "gemini-embedding-001"}`,
+    };
+  }
+
+  return {
+    embedProvider: provider,
+    embedBaseUrl: (process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434").replace(/\/$/, ""),
+    embedModel: process.env.OLLAMA_EMBED_MODEL ?? "nomic-embed-text",
+    embedModelLabel: `ollama:${process.env.OLLAMA_EMBED_MODEL ?? "nomic-embed-text"}`,
+  };
+}
+
 export function getAIConfig() {
   const provider = resolveAIProvider();
+  const embedding = getEmbeddingConfig(provider);
 
   if (provider === "openai") {
     const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
@@ -56,7 +123,7 @@ export function getAIConfig() {
       provider,
       baseUrl,
       chatModel,
-      embedModel: process.env.OPENAI_EMBED_MODEL ?? null,
+      ...embedding,
       modelLabel: `openai:${chatModel}`,
     };
   }
@@ -72,20 +139,32 @@ export function getAIConfig() {
       provider,
       baseUrl,
       chatModel,
-      embedModel: process.env.GEMINI_EMBED_MODEL ?? null,
+      ...embedding,
       modelLabel: `gemini:${chatModel}`,
+    };
+  }
+
+  if (provider === "groq") {
+    const baseUrl = (process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1").replace(/\/$/, "");
+    const chatModel = process.env.GROQ_CHAT_MODEL ?? "openai/gpt-oss-120b";
+
+    return {
+      provider,
+      baseUrl,
+      chatModel,
+      ...embedding,
+      modelLabel: `groq:${chatModel}`,
     };
   }
 
   const baseUrl = (process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434").replace(/\/$/, "");
   const chatModel = process.env.OLLAMA_CHAT_MODEL ?? "gpt-oss:120b-cloud";
-  const embedModel = process.env.OLLAMA_EMBED_MODEL ?? "nomic-embed-text";
 
   return {
     provider,
     baseUrl,
     chatModel,
-    embedModel,
+    ...embedding,
     modelLabel: `ollama:${chatModel}`,
   };
 }
@@ -160,6 +239,41 @@ async function checkGeminiConnection() {
   return models;
 }
 
+async function checkGroqConnection() {
+  const { baseUrl, chatModel } = getAIConfig();
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error("Falta GROQ_API_KEY para usar Groq.");
+  }
+
+  const response = await fetch(`${baseUrl}/models`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Groq no responde (${response.status}): ${errorBody.slice(0, 300)}`);
+  }
+
+  const data = (await response.json()) as {
+    data?: Array<{ id?: string }>;
+  };
+  const models = (data.data ?? [])
+    .map((model) => model.id)
+    .filter((id): id is string => Boolean(id));
+
+  if (models.length > 0 && !models.includes(chatModel)) {
+    throw new Error(`El modelo configurado no aparece disponible en Groq: ${chatModel}`);
+  }
+
+  return models;
+}
+
 export async function checkOllamaConnection() {
   const { baseUrl } = getAIConfig();
   const response = await fetch(`${baseUrl}/api/tags`, {
@@ -184,6 +298,9 @@ export async function checkAIConnection() {
   }
   if (config.provider === "gemini") {
     return checkGeminiConnection();
+  }
+  if (config.provider === "groq") {
+    return checkGroqConnection();
   }
 
   return checkOllamaConnection();
@@ -305,6 +422,50 @@ async function geminiChat(params: AIChatParams) {
   );
 }
 
+async function groqChat(params: AIChatParams) {
+  const { baseUrl, chatModel } = getAIConfig();
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error("Falta GROQ_API_KEY para usar Groq.");
+  }
+
+  const messages = [
+    params.systemPrompt
+      ? { role: "system", content: params.systemPrompt }
+      : undefined,
+    { role: "user", content: params.userPrompt },
+  ].filter(Boolean);
+
+  console.info("[ai:chat] generando con Groq", {
+    provider: "groq",
+    model: chatModel,
+    baseUrl,
+  });
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: chatModel,
+      messages,
+      temperature: params.temperature ?? 0.2,
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Error en Groq (${response.status}): ${errorBody.slice(0, 300)}`);
+  }
+
+  const data = (await response.json()) as GroqResponse;
+  return data.choices?.[0]?.message?.content?.trim() ?? "";
+}
+
 export async function aiChat(params: AIChatParams) {
   const config = getAIConfig();
 
@@ -313,6 +474,9 @@ export async function aiChat(params: AIChatParams) {
   }
   if (config.provider === "gemini") {
     return geminiChat(params);
+  }
+  if (config.provider === "groq") {
+    return groqChat(params);
   }
 
   const messages = [

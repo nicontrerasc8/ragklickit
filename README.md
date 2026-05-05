@@ -11,35 +11,37 @@
 
 This project now resolves the text-generation provider automatically:
 
-- `production` defaults to `Gemini`
-- local development defaults to `Ollama`
-- `AI_PROVIDER` can override either environment with `gemini`, `openai` or `ollama`
+- local development and `production` both default to `Groq`
+- `AI_PROVIDER=groq` is the intended setup for local and production
+- Groq uses separate models by task: `GROQ_CHAT_MODEL` for generation and `GROQ_WEB_SEARCH_MODEL` for web research
 
-For production, set at least these variables:
+For local and production, set at least these variables:
 
 ```env
-AI_PROVIDER=gemini
-WEB_RESEARCH_PROVIDER=gemini
-GEMINI_API_KEY=...
-GEMINI_CHAT_MODEL=gemini-2.5-flash
-GEMINI_WEB_SEARCH_MODEL=gemini-2.5-flash
+AI_PROVIDER=groq
+WEB_RESEARCH_PROVIDER=groq
+GROQ_API_KEY=...
+GROQ_CHAT_MODEL=openai/gpt-oss-120b
+GROQ_WEB_SEARCH_MODEL=groq/compound-mini
 ```
 
 Optional variables:
 
 ```env
-GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
-GEMINI_EMBED_MODEL=
+GROQ_BASE_URL=https://api.groq.com/openai/v1
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_API_KEY=
 OPENAI_CHAT_MODEL=gpt-4.1-mini
 OPENAI_WEB_SEARCH_MODEL=gpt-4.1-mini
 OPENAI_IMAGE_MODEL=gpt-image-1
 OPENAI_EMBED_MODEL=text-embedding-3-small
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_CHAT_MODEL=gpt-oss:120b-cloud
+OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
-Web research uses Gemini Google Search grounding by default when `GEMINI_API_KEY` is present. Set
-`WEB_RESEARCH_PROVIDER=openai` only if you explicitly want to use OpenAI web search.
+Web research uses Groq Compound Mini by default when `GROQ_API_KEY` is present. The normal generation path uses
+`openai/gpt-oss-120b` by default, so content generation does not have to run through the web-search system.
 
 Use [.env.example](./.env.example) as the reference template.
 

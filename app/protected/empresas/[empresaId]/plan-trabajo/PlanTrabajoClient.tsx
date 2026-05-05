@@ -233,7 +233,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
               </h2>
             </div>
             <p className="mb-4 text-[12px] text-white/35 leading-relaxed pl-4.5">
-              La IA usara el contexto de agencia, empresa, BEC, el BRIEF seleccionado y el apoyo opcional que pegues para armar el plan.
+              La IA usara documentos ya cargados de empresa/agencia, BEC, el BRIEF seleccionado, apoyo opcional e investigacion web. No necesitas subir archivos nuevos.
             </p>
 
             {briefs.length > 0 ? (
@@ -310,7 +310,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                     <textarea
                       name="support_links"
                       rows={3}
-                      placeholder="Links para investigar con Gemini y Google Search: web del cliente, landing, competencia, referencias, articulos..."
+                      placeholder="Links para investigar en web: web del cliente, landing, competencia, referencias, articulos..."
                       className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
                     />
                     <div className="mt-3 flex flex-wrap gap-1.5">
@@ -344,7 +344,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                 </div>
 
                 <div className="rounded-xl border border-violet-400/12 bg-violet-400/6 px-4 py-3 text-[11px] leading-relaxed text-white/40">
-                  La IA combinara el brief seleccionado con el BEC, contexto documental de empresa/agencia, las instrucciones creativas y el apoyo manual si existe.
+                  La IA combinara el brief seleccionado con el BEC, metadata de empresa, documentos ya cargados, investigacion web, instrucciones creativas y apoyo manual si existe.
                 </div>
 
                 <div className="sm:self-end">
