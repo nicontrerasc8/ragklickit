@@ -386,7 +386,7 @@ export default function CalendarioContentStudio({
                   <div className="flex min-w-0 items-center gap-4">
                     {/* Channel icon orb */}
                     <div
-                      className="flex h-10 w-10 flex-none items-center justify-center rounded-2xl text-base font-bold text-white shadow-lg"
+                      className="flex h-10 w-10 flex-none items-center justify-center rounded-2xl  font-bold text-white shadow-lg"
                       style={{ background: channelConfig.gradient }}
                     >
                       {channelConfig.icon}
@@ -398,7 +398,7 @@ export default function CalendarioContentStudio({
                       >
                         {selectedItem.canal} · {selectedItem.formato}
                       </p>
-                      <h1 className="mt-0.5 truncate text-lg font-semibold text-white/92">
+                      <h1 className="mt-0.5 text-lg font-semibold text-white/92">
                         {selectedItem.titulo_base || selectedItem.tema || "Sin título"}
                       </h1>
                     </div>
