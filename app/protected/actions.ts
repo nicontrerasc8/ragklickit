@@ -544,8 +544,38 @@ function logGenerationFailure(context: string, error: unknown, meta: Record<stri
 
 function classifyAiGenerationError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
   if (message.includes("GROQ_API_KEY")) return "missing_groq_key";
   if (message.includes("OPENAI_API_KEY") || message.includes("GEMINI_API_KEY")) return "missing_ai_key";
+  if (normalized.includes("error en groq (401)") || normalized.includes("error en groq (403)")) {
+    return "invalid_groq_key";
+  }
+  if (normalized.includes("error en groq (429)") || normalized.includes("rate limit")) {
+    return "groq_rate_limited";
+  }
+  if (
+    normalized.includes("error en groq (413)") ||
+    normalized.includes("context") ||
+    normalized.includes("token") ||
+    normalized.includes("too large") ||
+    normalized.includes("request too large")
+  ) {
+    return "groq_context_too_large";
+  }
+  if (
+    normalized.includes("model") &&
+    (normalized.includes("not found") ||
+      normalized.includes("does not exist") ||
+      normalized.includes("unavailable") ||
+      normalized.includes("decommissioned"))
+  ) {
+    return "invalid_groq_model";
+  }
+  if (normalized.includes("error en groq (5")) return "groq_server_error";
+  if (normalized.includes("error en groq")) return "groq_request_failed";
+  if (normalized.includes("fetch failed") || normalized.includes("econnreset") || normalized.includes("etimedout")) {
+    return "ai_network_failed";
+  }
   return "ai_generation_failed";
 }
 
@@ -3040,12 +3070,18 @@ export async function generateBriefDraft(formData: FormData) {
       model: getActiveTextModelLabel(),
     });
     const code = classifyAiGenerationError(error);
-    return {
-      error:
-        code === "missing_groq_key"
-          ? "Falta GROQ_API_KEY en produccion. Agrega esa variable en Vercel y redeploya."
-          : "La generacion del brief con IA fallo. Revisa la configuracion de Groq en produccion.",
+    const briefAiMessages: Record<string, string> = {
+      missing_groq_key: "Falta GROQ_API_KEY en produccion. Agrega esa variable en Vercel y redeploya.",
+      missing_ai_key: "Falta la API key del proveedor de IA configurado en produccion.",
+      invalid_groq_key: "Groq rechazo la API key configurada. Revisa que GROQ_API_KEY sea la key correcta del proyecto y redeploya.",
+      invalid_groq_model: "Groq rechazo el modelo configurado. Usa un valor disponible como GROQ_CHAT_MODEL=openai/gpt-oss-120b y redeploya.",
+      groq_rate_limited: "Groq rechazo la solicitud por limite de uso o cuota. Espera unos minutos o revisa el plan/cuota de Groq.",
+      groq_context_too_large: "El contexto enviado a Groq es demasiado grande. Reduce documentos, apoyo manual o prompts activos y vuelve a intentar.",
+      groq_server_error: "Groq respondio con error temporal de servidor. Intenta nuevamente en unos minutos.",
+      groq_request_failed: "Groq rechazo la solicitud. Revisa los logs de runtime para ver el detalle exacto devuelto por Groq.",
+      ai_network_failed: "La app no pudo conectarse con el proveedor de IA. Revisa conectividad saliente desde Vercel y vuelve a intentar.",
     };
+    return { error: briefAiMessages[code] ?? "La generacion del brief con IA fallo. Revisa los logs de runtime para ver el error exacto del proveedor." };
   }
 
   if (!generatedBrief.trim()) {
