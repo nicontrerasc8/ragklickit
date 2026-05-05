@@ -177,3 +177,37 @@ export function buildPlanTrabajoPrompt(params: {
     compactJson(buildPlanTrabajoOutputShape(params.defaultPlanTrabajo)),
   ].join("\n");
 }
+
+export function buildPlanTrabajoBriefOnlyPrompt(params: {
+  periodo: string;
+  empresa: unknown;
+  briefContext: string;
+  defaultPlanTrabajo: PlanTrabajo;
+}) {
+  return [
+    `Construye un plan de trabajo mensual para ${params.periodo}.`,
+    "",
+    "MODO BRIEF-ONLY:",
+    "Usa SOLO el brief seleccionado como fuente de contexto estrategico y operativo.",
+    "No asumas investigacion web, documentos cargados, BEC, prompts activos ni apoyo manual.",
+    "Si el brief no contiene un dato, escribe un pendiente accionable en pendientes_cliente o notas_adicionales. No inventes.",
+    "",
+    "EMPRESA:",
+    compactJson(params.empresa),
+    "",
+    "BRIEF SELECCIONADO:",
+    params.briefContext || "Sin brief disponible",
+    "",
+    "REGLAS:",
+    "1) Devuelve SOLO JSON valido, sin markdown ni texto adicional.",
+    "2) Respeta exactamente la estructura indicada.",
+    "3) Genera decisiones concretas, operables y conservadoras segun el brief.",
+    "4) No menciones fuentes que no fueron usadas. En notas_adicionales incluye: Fuentes usadas: brief seleccionado.",
+    "5) contenido_sugerido debe ser un banco de ideas por canal, no captions finales.",
+    "6) Si hay alcance_calendario, no propongas canales fuera de ese alcance.",
+    "7) Si falta informacion de canales, cantidades, presupuesto, fechas, promociones o responsables, dejalo como pendiente de validacion.",
+    "",
+    "ESTRUCTURA JSON:",
+    compactJson(buildPlanTrabajoOutputShape(params.defaultPlanTrabajo)),
+  ].join("\n");
+}

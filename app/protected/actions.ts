@@ -27,7 +27,7 @@ import {
   makeDefaultPlanTrabajo,
   normalizePlanTrabajoContent,
 } from "@/lib/plan-trabajo/schema";
-import { buildPlanTrabajoPrompt } from "@/lib/plan-trabajo/prompts";
+import { buildPlanTrabajoBriefOnlyPrompt } from "@/lib/plan-trabajo/prompts";
 import {
   clearCalendarioAssetBundles,
   makeDefaultCalendarioContent,
@@ -3184,10 +3184,6 @@ export async function generateBriefDraft(formData: FormData) {
 export async function generatePlanTrabajoDraft(formData: FormData) {
   const empresaId = String(formData.get("empresa_id") ?? "").trim();
   const briefId = String(formData.get("brief_id") ?? "").trim();
-  const supportTitle = String(formData.get("support_title") ?? "").trim();
-  const supportText = sanitizeStoredText(String(formData.get("support_text") ?? ""));
-  const supportLinks = String(formData.get("support_links") ?? "").trim();
-  const customPrompt = String(formData.get("custom_prompt") ?? "").trim();
   const redirectTo = String(formData.get("redirect_to") ?? "").trim();
   const fallbackRedirectPath = empresaId
     ? `/protected/empresas/${empresaId}/plan-trabajo`
@@ -3203,65 +3199,24 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 
   const { supabase, agenciaId } = await requireUserAgenciaContext();
 
-  const [
-    empresaResult,
-    briefResult,
-    becResult,
-    docsEmpresaResult,
-    docsAgenciaResult,
-    promptsResult,
-    agenciaResult,
-  ] =
-    await Promise.all([
-      supabase
-        .from("empresa")
-        .select("id, nombre, industria, pais, metadata_json")
-        .eq("id", empresaId)
-        .eq("agencia_id", agenciaId)
-        .maybeSingle(),
-      supabase
-        .from("brief")
-        .select("id, periodo, estado, version, contenido_json")
-        .eq("id", briefId)
-        .eq("empresa_id", empresaId)
-        .maybeSingle(),
-      supabase
-        .from("bec")
-        .select("version, contenido_json, updated_at")
-        .eq("empresa_id", empresaId)
-        .maybeSingle(),
-      supabase
-        .from("kb_documents")
-        .select("id, title, raw_text, created_at")
-        .eq("empresa_id", empresaId)
-        .eq("agencia_id", agenciaId)
-        .order("created_at", { ascending: false })
-        .limit(8),
-      supabase
-        .from("kb_documents")
-        .select("id, title, raw_text, created_at")
-        .eq("agencia_id", agenciaId)
-        .is("empresa_id", null)
-        .order("created_at", { ascending: false })
-        .limit(6),
-      supabase
-        .from("agencia_prompt")
-        .select("prompt_type, prompt_text, activo, updated_at")
-        .eq("agencia_id", agenciaId)
-        .eq("activo", true)
-        .in("prompt_type", ["bec", "plan_trabajo"])
-        .order("updated_at", { ascending: false }),
-      supabase.from("agencia").select("id, nombre, slug").eq("id", agenciaId).maybeSingle(),
-    ]);
+  const [empresaResult, briefResult] = await Promise.all([
+    supabase
+      .from("empresa")
+      .select("id, nombre, industria, pais, metadata_json")
+      .eq("id", empresaId)
+      .eq("agencia_id", agenciaId)
+      .maybeSingle(),
+    supabase
+      .from("brief")
+      .select("id, periodo, estado, version, contenido_json")
+      .eq("id", briefId)
+      .eq("empresa_id", empresaId)
+      .maybeSingle(),
+  ]);
 
   const firstReadError =
     empresaResult.error ??
-    briefResult.error ??
-    becResult.error ??
-    docsEmpresaResult.error ??
-    docsAgenciaResult.error ??
-    promptsResult.error ??
-    agenciaResult.error;
+    briefResult.error;
 
   if (firstReadError) {
     logGenerationFailure("plan-context", firstReadError, {
@@ -3274,11 +3229,6 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 
   const { data: empresa } = empresaResult;
   const { data: brief } = briefResult;
-  const { data: becActual } = becResult;
-  const { data: docsEmpresa } = docsEmpresaResult;
-  const { data: docsAgencia } = docsAgenciaResult;
-  const { data: prompts } = promptsResult;
-  const { data: agencia } = agenciaResult;
 
   if (!empresa || !brief) {
     logGenerationFailure("plan-context", "Empresa o brief no encontrado", {
@@ -3293,34 +3243,7 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   }
 
   const briefForm = loadBriefForm(brief.contenido_json);
-  const becContext = becActual?.contenido_json
-    ? JSON.stringify(becActual.contenido_json, null, 2).slice(0, 14000)
-    : "Sin BEC previo";
-  const briefContext = JSON.stringify(briefForm, null, 2).slice(0, 14000);
-  const supportDocContexts: string[] = [];
-  if (supportText) {
-    const title = supportTitle || "Texto pegado para este plan";
-    supportDocContexts.push(`Contexto escrito para este plan: ${title}\n${supportText.slice(0, 16000)}`);
-  }
-  const supportDocContext = supportDocContexts.join("\n\n");
-  const empresaDocsContext = (docsEmpresa ?? [])
-    .map(
-      (doc, index) =>
-        `Documento empresa ${index + 1}: ${doc.title}\nFecha: ${doc.created_at}\n${doc.raw_text.slice(0, 4500)}`,
-    )
-    .join("\n\n");
-  const agenciaDocsContext = (docsAgencia ?? [])
-    .map(
-      (doc, index) =>
-        `Documento agencia ${index + 1}: ${doc.title}\nFecha: ${doc.created_at}\n${doc.raw_text.slice(0, 3000)}`,
-    )
-    .join("\n\n");
-  const promptContext = (prompts ?? [])
-    .map(
-      (row, index) =>
-        `Prompt ${index + 1} (${row.prompt_type}):\n${row.prompt_text.slice(0, 3500)}`,
-    )
-    .join("\n\n");
+  const briefContext = JSON.stringify(briefForm, null, 2).slice(0, 9000);
   const empresaMetadata =
     empresa.metadata_json && typeof empresa.metadata_json === "object"
       ? (empresa.metadata_json as Record<string, unknown>)
@@ -3338,54 +3261,21 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
     alcance_calendario: alcanceCalendario,
   });
 
-  const empresaMetadataContext = JSON.stringify(empresaMetadata, null, 2).slice(0, 10000);
-  const referenceLinks = Array.from(
-    new Set([
-      ...extractUrlsFromText(supportLinks),
-      ...extractUrlsFromText(supportText),
-      ...extractUrlsFromText(customPrompt),
-    ]),
-  ).slice(0, 8);
-  let webResearchContext = "";
-  let referenceLinksContext = "";
-  try {
-    [webResearchContext, referenceLinksContext] = await Promise.all([
-      getCompanyWebResearch(empresa),
-      getReferenceLinksWebResearch({
-        links: referenceLinks,
-        purpose: "generar un plan de trabajo mensual de marketing",
-        userContext: [customPrompt, supportText].filter(Boolean).join("\n\n"),
-        country: empresa.pais ?? undefined,
-      }),
-    ]);
-  } catch (error) {
-    logGenerationFailure("plan-web-research", error, {
-      empresaId,
-      briefId,
-      agenciaId,
-    });
-    webResearchContext = "Investigacion web no disponible: fallo inesperado durante la busqueda.";
-  }
-
   let generatedPlan = "";
   try {
     generatedPlan = await aiChat({
       systemPrompt:
-        "Eres PM principal, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Tu trabajo es convertir BEC, brief, metadata_json, documentos ya cargados, apoyo manual e investigacion web cuando exista en un plan especifico. No necesitas que el usuario suba archivos en esta generacion: usa el conocimiento documental disponible. Si una recomendacion no tiene base en esas fuentes, la descartas o la marcas como pendiente. No generes relleno generico.",
-      userPrompt: buildPlanTrabajoPrompt({
+        "Eres planner senior de marketing. Respondes SOLO JSON valido, sin markdown ni texto adicional. Usa exclusivamente el brief seleccionado como fuente de contexto.",
+      userPrompt: buildPlanTrabajoBriefOnlyPrompt({
         periodo: brief.periodo,
-        agencia: agencia ?? {},
-        empresa,
-        empresaMetadataContext,
-        becContext,
+        empresa: {
+          id: empresa.id,
+          nombre: empresa.nombre,
+          industria: empresa.industria,
+          pais: empresa.pais,
+        },
         briefContext,
-        supportDocContext,
-        webResearchContext: [webResearchContext, referenceLinksContext].filter(Boolean).join("\n\n"),
-        empresaDocsContext,
-        agenciaDocsContext,
-        promptContext,
         defaultPlanTrabajo,
-        creativeInstructions: customPrompt,
       }),
       temperature: 0.2,
     });
@@ -3439,7 +3329,6 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
       briefId: brief.id,
       periodo: brief.periodo,
       contenidoJson: contentJson,
-      customPrompt,
       modelUsed: getActiveTextModelLabel(),
       promptVersion: "plan_trabajo_v1",
     });

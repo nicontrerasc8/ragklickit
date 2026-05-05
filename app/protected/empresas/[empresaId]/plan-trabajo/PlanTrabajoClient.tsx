@@ -64,19 +64,19 @@ const STATUS_MAP: Record<string, string> = {
 };
 
 const GENERATION_ERROR_MESSAGES: Record<string, string> = {
-  context_read_failed: "No se pudo leer todo el contexto necesario para generar el plan. Revisa la empresa, el brief y los documentos cargados.",
+  context_read_failed: "No se pudo leer el contexto necesario para generar el plan. Revisa la empresa y el brief seleccionado.",
   missing_context: "No se encontro la empresa o el brief seleccionado para generar este plan.",
   missing_groq_key: "Falta GROQ_API_KEY en produccion. Agrega esa variable en Vercel y redeploya para generar con Groq.",
   missing_ai_key: "Falta la API key del proveedor de IA configurado en produccion.",
   invalid_groq_key: "Groq rechazo la API key configurada. Revisa que GROQ_API_KEY sea la key correcta del proyecto y redeploya.",
   invalid_groq_model: "Groq rechazo el modelo configurado. Usa un valor disponible como GROQ_CHAT_MODEL=openai/gpt-oss-120b y redeploya.",
   groq_rate_limited: "Groq rechazo la solicitud por limite de uso o cuota. Espera unos minutos o revisa el plan/cuota de Groq.",
-  groq_context_too_large: "El contexto enviado a Groq es demasiado grande. Reduce documentos, apoyo manual o prompts activos y vuelve a intentar.",
+  groq_context_too_large: "El brief seleccionado es demasiado grande para enviarlo a Groq. Recortalo o crea un brief mas sintetico y vuelve a intentar.",
   groq_server_error: "Groq respondio con error temporal de servidor. Intenta nuevamente en unos minutos.",
   groq_request_failed: "Groq rechazo la solicitud. Revisa los logs de runtime para ver el detalle exacto devuelto por Groq.",
   ai_network_failed: "La app no pudo conectarse con el proveedor de IA. Revisa conectividad saliente desde Vercel y vuelve a intentar.",
   ai_generation_failed: "La generacion con IA fallo. Revisa los logs de runtime para ver el error exacto del proveedor.",
-  empty_ai_response: "La IA respondio vacio. Intenta nuevamente o cambia el brief/base de apoyo.",
+  empty_ai_response: "La IA respondio vacio. Intenta nuevamente o cambia el brief base.",
   save_failed: "El plan se genero, pero no se pudo guardar en la base de datos.",
 };
 
@@ -158,7 +158,6 @@ function PlanLinkButton({
 
 export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, planes, generationError }: Props) {
   const [selectedBrief, setSelectedBrief] = useState(briefs[0]?.id ?? "");
-  const [creativePrompt, setCreativePrompt] = useState("");
   const selectedBriefItem = briefs.find((brief) => brief.id === selectedBrief) ?? briefs[0] ?? null;
   const generationErrorMessage = generationError
     ? GENERATION_ERROR_MESSAGES[generationError] ?? "No se pudo generar el plan. Revisa la configuracion de IA y vuelve a intentar."
@@ -254,7 +253,7 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
               </h2>
             </div>
             <p className="mb-4 text-[12px] text-white/35 leading-relaxed pl-4.5">
-              La IA usara documentos ya cargados de empresa/agencia, BEC, el BRIEF seleccionado, apoyo opcional e investigacion web. No necesitas subir archivos nuevos.
+              La IA usara solo el BRIEF seleccionado. No cargara BEC, documentos, prompts activos, apoyo manual ni investigacion web.
             </p>
 
             {generationErrorMessage ? (
@@ -316,62 +315,10 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
                     ) : null}
                   </div>
 
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.025] p-4">
-                    <label className="block text-[11px] font-bold uppercase tracking-[0.12em] text-white/32">
-                      Contexto de apoyo
-                    </label>
-                    <p className="mt-1 text-[12px] leading-relaxed text-white/30">
-                      Pega contexto adicional para afinar el plan: brief comercial, pauta, promos o lineamientos.
-                    </p>
-                    <input
-                      name="support_title"
-                      placeholder="Titulo opcional del apoyo"
-                      className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
-                    />
-                    <textarea
-                      name="support_text"
-                      rows={6}
-                      placeholder="Pega aqui los acuerdos, prioridades, tareas, restricciones, promociones o insumos para este plan."
-                      className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
-                    />
-                    <textarea
-                      name="support_links"
-                      rows={3}
-                      placeholder="Links para investigar en web: web del cliente, landing, competencia, referencias, articulos..."
-                      className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
-                    />
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {["Texto", "Links"].map((label) => (
-                        <span
-                          key={label}
-                          className="rounded-full border border-white/8 bg-white/[0.03] px-2 py-1 text-[10px] font-medium text-white/38"
-                        >
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-                    <label className="block text-[11px] font-bold uppercase tracking-[0.12em] text-white/32">
-                      Instrucciones creativas
-                    </label>
-                    <p className="mt-1 text-[12px] leading-relaxed text-white/30">
-                      Dale direccion adicional a la IA: enfoque narrativo, angulos, tono, prioridades comerciales o restricciones creativas para este plan.
-                    </p>
-                    <textarea
-                      name="custom_prompt"
-                      rows={5}
-                      value={creativePrompt}
-                      onChange={(e) => setCreativePrompt(e.target.value)}
-                      placeholder="Ej: prioriza una narrativa mas aspiracional, con foco en prueba social, objeciones de compra y piezas que puedan escalarse a pauta."
-                      className="mt-3 w-full rounded-xl border border-white/10 bg-[#14141b] px-3.5 py-3 text-sm leading-relaxed text-white/80 placeholder:text-white/20 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
-                    />
-                  </div>
                 </div>
 
                 <div className="rounded-xl border border-violet-400/12 bg-violet-400/6 px-4 py-3 text-[11px] leading-relaxed text-white/40">
-                  La IA combinara el brief seleccionado con el BEC, metadata de empresa, documentos ya cargados, investigacion web, instrucciones creativas y apoyo manual si existe.
+                  Modo reducido activo: solo brief seleccionado y datos minimos de empresa para identificar el plan.
                 </div>
 
                 <div className="sm:self-end">
