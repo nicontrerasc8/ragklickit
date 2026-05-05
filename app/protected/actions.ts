@@ -53,7 +53,6 @@ import {
 
 const ALLOWED_PROMPT_TYPES = [
   "bec",
-  "brief",
   "plan_trabajo",
   "calendario",
 ] as const;
@@ -2971,7 +2970,7 @@ export async function generateBriefDraft(formData: FormData) {
       .select("prompt_type, prompt_text, activo, updated_at")
       .eq("agencia_id", agenciaId)
       .eq("activo", true)
-      .in("prompt_type", ["bec", "brief", "plan_trabajo"])
+      .in("prompt_type", ["bec", "plan_trabajo"])
       .order("updated_at", { ascending: false }),
   ]);
 
