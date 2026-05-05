@@ -33,6 +33,7 @@ type Props = {
   alcanceCalendario: string;
   planes: PlanArtifact[];
   calendarios: CalendarioArtifact[];
+  generationError?: string;
 };
 
 type Pieza = {
@@ -74,6 +75,16 @@ const DEFAULT_CALENDARIO_PROMPT = [
   "Cuando haya oportunidad, incorpora POV, datos, microhistorias, comparativas, objeciones de compra, errores evitables, rituales, simbolos culturales o decisiones inteligentes.",
   "Si una idea suena correcta pero olvidable, reemplazala por una mas especifica, mas util y mas memorable.",
 ].join("\n");
+
+const GENERATION_ERROR_MESSAGES: Record<string, string> = {
+  context_read_failed: "No se pudo leer todo el contexto necesario para generar el calendario.",
+  missing_context: "No se encontro la empresa o el plan seleccionado para generar este calendario.",
+  missing_groq_key: "Falta GROQ_API_KEY en produccion. Agrega esa variable en Vercel y redeploya.",
+  missing_ai_key: "Falta la API key del proveedor de IA configurado en produccion.",
+  ai_generation_failed: "La generacion con IA fallo. Revisa la configuracion de Groq en produccion.",
+  empty_ai_response: "La IA respondio vacio. Intenta nuevamente o cambia el plan base.",
+  save_failed: "El calendario se genero, pero no se pudo guardar en la base de datos.",
+};
 
 function fmt(periodo: string) {
   try {
@@ -220,10 +231,14 @@ export default function CalendarioClient({
   alcanceCalendario,
   planes,
   calendarios,
+  generationError,
 }: Props) {
   const [selectedPlan, setSelectedPlan] = useState(planes[0]?.id ?? "");
   const [customPrompt, setCustomPrompt] = useState(DEFAULT_CALENDARIO_PROMPT);
   const [referenceLinks, setReferenceLinks] = useState("");
+  const generationErrorMessage = generationError
+    ? GENERATION_ERROR_MESSAGES[generationError] ?? "No se pudo generar el calendario."
+    : "";
 
   return (
     <div
@@ -291,6 +306,12 @@ export default function CalendarioClient({
           <p className="text-xs text-white/40 mb-4 mt-1">
             La IA creara un calendario semanal con piezas concretas basado en el plan seleccionado.
           </p>
+
+          {generationErrorMessage ? (
+            <div className="mb-4 rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-xs leading-relaxed text-red-100/80">
+              {generationErrorMessage}
+            </div>
+          ) : null}
 
           {planes.length > 0 ? (
             <form action={generateCalendarioDraft} className="flex flex-col gap-3">

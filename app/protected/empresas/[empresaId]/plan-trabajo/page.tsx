@@ -4,10 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import PlanTrabajoClient from "./PlanTrabajoClient";
 type PlanTrabajoPageProps = {
   params: Promise<{ empresaId: string }>;
+  searchParams?: Promise<{ generation_error?: string }>;
 };
 
-export default async function EmpresaPlanTrabajoPage({ params }: PlanTrabajoPageProps) {
+export default async function EmpresaPlanTrabajoPage({ params, searchParams }: PlanTrabajoPageProps) {
   const { empresaId } = await params;
+  const generationError = (await searchParams)?.generation_error ?? "";
   const supabase = await createClient();
   const {
     data: { user },
@@ -56,6 +58,7 @@ export default async function EmpresaPlanTrabajoPage({ params }: PlanTrabajoPage
       empresaNombre={empresa.nombre}
       briefs={briefs ?? []}
       planes={planes ?? []}
+      generationError={generationError}
     />
   );
 }

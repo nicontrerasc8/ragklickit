@@ -11,7 +11,6 @@ import {
   makeDefaultBriefForm,
 } from "@/lib/brief/schema";
 import {
-  assertWebResearchAvailable,
   extractUrlsFromText,
   getCompanyWebResearch,
   getReferenceLinksWebResearch,
@@ -515,6 +514,40 @@ function logUploadFailure(context: string, error: unknown, meta: Record<string, 
     ...meta,
     error: error instanceof Error ? error.message : String(error),
   });
+}
+
+function normalizeInternalRedirectPath(path: string, fallback: string) {
+  const trimmed = path.trim();
+  if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//")) {
+    return fallback;
+  }
+
+  return trimmed;
+}
+
+function withSearchParam(path: string, key: string, value: string) {
+  try {
+    const url = new URL(path, "http://app.local");
+    url.searchParams.set(key, value);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    const separator = path.includes("?") ? "&" : "?";
+    return `${path}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+  }
+}
+
+function logGenerationFailure(context: string, error: unknown, meta: Record<string, unknown>) {
+  console.error(`[generation:${context}] failed`, {
+    ...meta,
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function classifyAiGenerationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("GROQ_API_KEY")) return "missing_groq_key";
+  if (message.includes("OPENAI_API_KEY") || message.includes("GEMINI_API_KEY")) return "missing_ai_key";
+  return "ai_generation_failed";
 }
 
 async function requireUser() {
@@ -2889,11 +2922,24 @@ export async function generateBriefDraft(formData: FormData) {
     return null;
   }
 
-  const normalizedPeriodo = normalizeBriefPeriodoOrThrow(periodo);
+  let normalizedPeriodo = "";
+  try {
+    normalizedPeriodo = normalizeBriefPeriodoOrThrow(periodo);
+  } catch (error) {
+    logGenerationFailure("brief-periodo", error, { empresaId, periodo });
+    return { error: "Periodo de brief invalido." };
+  }
 
-  const { empresa, docs } = await getEmpresaContext(empresaId);
+  let empresaContext: Awaited<ReturnType<typeof getEmpresaContext>>;
+  try {
+    empresaContext = await getEmpresaContext(empresaId);
+  } catch (error) {
+    logGenerationFailure("brief-context", error, { empresaId, periodo: normalizedPeriodo });
+    return { error: "No se pudo leer el contexto de empresa para generar el brief." };
+  }
+  const { empresa, docs } = empresaContext;
   if (!empresa) {
-    return null;
+    return { error: "Empresa no encontrada para generar el brief." };
   }
   const empresaMetadata =
     empresa.metadata_json && typeof empresa.metadata_json === "object"
@@ -2901,13 +2947,18 @@ export async function generateBriefDraft(formData: FormData) {
       : {};
 
   const { supabase, agenciaId } = await requireUserAgenciaContext();
-  const { data: becActual } = await supabase
+  const { data: becActual, error: becError } = await supabase
     .from("bec")
     .select("version, contenido_json, updated_at")
     .eq("empresa_id", empresaId)
     .maybeSingle();
 
-  const [{ data: agencyDocs }, { data: promptRows }] = await Promise.all([
+  if (becError) {
+    logGenerationFailure("brief-context", becError, { empresaId, agenciaId });
+    return { error: "No se pudo leer el BEC actual para generar el brief." };
+  }
+
+  const [agencyDocsResult, promptRowsResult] = await Promise.all([
     supabase
       .from("kb_documents")
       .select("id, title, raw_text, created_at")
@@ -2924,13 +2975,30 @@ export async function generateBriefDraft(formData: FormData) {
       .order("updated_at", { ascending: false }),
   ]);
 
+  if (agencyDocsResult.error || promptRowsResult.error) {
+    logGenerationFailure("brief-context", agencyDocsResult.error ?? promptRowsResult.error, {
+      empresaId,
+      agenciaId,
+    });
+    return { error: "No se pudo leer documentos o prompts de agencia para generar el brief." };
+  }
+
+  const { data: agencyDocs } = agencyDocsResult;
+  const { data: promptRows } = promptRowsResult;
+
   const context = docs
     .map(
       (doc, index) =>
         `Documento ${index + 1}: ${doc.title}\n${doc.raw_text.slice(0, 1800)}`,
     )
     .join("\n\n");
-  const webResearchContext = await getCompanyWebResearch(empresa);
+  let webResearchContext = "";
+  try {
+    webResearchContext = await getCompanyWebResearch(empresa);
+  } catch (error) {
+    logGenerationFailure("brief-web-research", error, { empresaId, agenciaId });
+    webResearchContext = "Investigacion web no disponible: fallo inesperado durante la busqueda.";
+  }
 
   const agencyContext = (agencyDocs ?? [])
     .map(
@@ -2958,12 +3026,37 @@ export async function generateBriefDraft(formData: FormData) {
     BRIEF_TEXT_FIELDS.map((field) => [field, ""]),
   );
 
-  const generatedBrief = await aiChat({
-    systemPrompt:
-      "Eres un planner principal de una agencia premium con criterio de estrategia, contenido, growth y negocio. Respondes SOLO JSON valido para un brief mensual. No inventes datos. Debes sonar preciso, senior, comercialmente inteligente y extremadamente util para operar.",
-    userPrompt: `Genera el brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa (fuente operativa prioritaria para cantidades, temas, alcance y restricciones):\n${empresaMetadataContext || "{}"}\n\nBEC actual (fuente estrategica):\n${becContext}\n\nInvestigacion web de empresa (fuente externa verificable para mercado, competencia, oferta, tono, SEO y oportunidades):\n${webResearchContext || "Sin investigacion web disponible"}\n\nConocimiento documental de agencia (lineamientos globales):\n${agencyContext || "Sin documentos globales de agencia"}\n\nConocimiento documental de empresa (realidad operativa y comercial):\n${context || "Sin documentos de empresa"}\n\nPrompts activos de agencia:\n${promptsContext || "Sin prompts activos"}\n\nTu rol:\nPiensa como un planner ultra senior que tiene que convertir estrategia en un plan mensual claro, defendible y ejecutable. No redactes como asistente generico. Redacta como alguien que entiende negocio, prioridad comercial, narrativa, conversion, operacion y riesgos.\n\nJerarquia de fuentes:\n1) Usa metadata_json como fuente prioritaria para cantidades, temas, frecuencias, responsables, dependencias, presupuesto, fechas y alcance operativo del mes.\n2) Usa el BEC como base estrategica para direccion, tono, foco comercial, mensajes y consistencia de marca.\n3) Usa investigacion web verificable para contraste de mercado, competencia, SEO, lenguaje real, oferta visible, objeciones y oportunidades culturales.\n4) Usa documentos de empresa y agencia para contrastar, aterrizar y enriquecer con criterio.\n5) Si hay conflicto, prioriza la fuente mas explicita, reciente y operativa.\n\nCriterio de calidad esperado:\n1) Cada campo debe ayudar a tomar decisiones reales de contenido, pauta, aprobacion, produccion o seguimiento.\n2) Evita frases vacias como "mejorar engagement", "generar awareness", "impulsar comunidad" o "reforzar branding" si no estan aterrizadas.\n3) Si planteas mensajes, deben tener angulo, prioridad comercial, tension competitiva y aplicacion real.\n4) Si planteas temas, deben verse como lineas editoriales o focos de negocio concretos, no categorias blandas ni relleno.\n5) Si seleccionas objetivos, deben responder a una prioridad mensual real y sustentada, no a marcar casillas por completitud.\n6) Si detectas oportunidad de performance, fidelizacion o consideracion, reflejala con criterio, pero solo si existe sustento.\n7) El brief debe sentirse como trabajo de una agencia muy buena: claro, util, especifico y con lectura del momento de negocio.\n\nReglas duras:\n1) No inventes montos, fechas, promociones, campañas, responsables, assets, aprobadores, lanzamientos ni distribuciones de presupuesto.\n2) Si un dato no existe con trazabilidad suficiente, escribe exactamente: "Pendiente de validar con cliente segun metadata_json y contexto actual."\n3) Si no hay lanzamiento, fecha clave o campaña confirmada, usa "-" solo en esos campos descriptivos; para datos operativos faltantes usa la frase de pendiente.\n4) Contrasta el BEC contra investigacion web, documentos de empresa y documentos de agencia.\n5) Explicita que se mantiene del BEC y que debe ajustarse para este mes.\n6) En cada ajuste, cita evidencia documental, metadata o fuente web concreta.\n7) Completa el formulario exactamente con las claves indicadas.\n8) No agregues claves nuevas ni cambies la estructura.\n9) No uses datos web no verificados como cifras, precios, promociones, fechas o claims duros.\n\nDevuelve SOLO JSON con esta estructura exacta:\n{"objectives":${JSON.stringify(objectivesTemplate)},"fields":${JSON.stringify(fieldsTemplate)},"strategicChanges":"si|no","cambios_sobre_bec":[{"tema":"","se_mantiene":"","se_ajusta":"","razon":"","evidencia":""}]}\n\nRegla de formato:\n- En objectives, marca true solo donde aplique y tenga sustento real.\n- En fields, completa texto accionable, especifico y estrategicamente util sin inventar datos.\n- strategicChanges debe ser "si" o "no".\n- En cambios_sobre_bec, registra ajustes con criterio, razon clara y evidencia concreta.`,
-    temperature: 0.3,
-  });
+  let generatedBrief = "";
+  try {
+    generatedBrief = await aiChat({
+      systemPrompt:
+        "Eres un planner principal de una agencia premium con criterio de estrategia, contenido, growth y negocio. Respondes SOLO JSON valido para un brief mensual. No inventes datos. Debes sonar preciso, senior, comercialmente inteligente y extremadamente util para operar.",
+      userPrompt: `Genera el brief mensual (${normalizedPeriodo}) para esta empresa:\n${JSON.stringify(empresa, null, 2)}\n\nMETADATA_JSON de empresa (fuente operativa prioritaria para cantidades, temas, alcance y restricciones):\n${empresaMetadataContext || "{}"}\n\nBEC actual (fuente estrategica):\n${becContext}\n\nInvestigacion web de empresa (fuente externa verificable para mercado, competencia, oferta, tono, SEO y oportunidades):\n${webResearchContext || "Sin investigacion web disponible"}\n\nConocimiento documental de agencia (lineamientos globales):\n${agencyContext || "Sin documentos globales de agencia"}\n\nConocimiento documental de empresa (realidad operativa y comercial):\n${context || "Sin documentos de empresa"}\n\nPrompts activos de agencia:\n${promptsContext || "Sin prompts activos"}\n\nTu rol:\nPiensa como un planner ultra senior que tiene que convertir estrategia en un plan mensual claro, defendible y ejecutable. No redactes como asistente generico. Redacta como alguien que entiende negocio, prioridad comercial, narrativa, conversion, operacion y riesgos.\n\nJerarquia de fuentes:\n1) Usa metadata_json como fuente prioritaria para cantidades, temas, frecuencias, responsables, dependencias, presupuesto, fechas y alcance operativo del mes.\n2) Usa el BEC como base estrategica para direccion, tono, foco comercial, mensajes y consistencia de marca.\n3) Usa investigacion web verificable solo si esta disponible para contraste de mercado, competencia, SEO, lenguaje real, oferta visible, objeciones y oportunidades culturales.\n4) Usa documentos de empresa y agencia para contrastar, aterrizar y enriquecer con criterio.\n5) Si hay conflicto, prioriza la fuente mas explicita, reciente y operativa.\n\nCriterio de calidad esperado:\n1) Cada campo debe ayudar a tomar decisiones reales de contenido, pauta, aprobacion, produccion o seguimiento.\n2) Evita frases vacias como "mejorar engagement", "generar awareness", "impulsar comunidad" o "reforzar branding" si no estan aterrizadas.\n3) Si planteas mensajes, deben tener angulo, prioridad comercial, tension competitiva y aplicacion real.\n4) Si planteas temas, deben verse como lineas editoriales o focos de negocio concretos, no categorias blandas ni relleno.\n5) Si seleccionas objetivos, deben responder a una prioridad mensual real y sustentada, no a marcar casillas por completitud.\n6) Si detectas oportunidad de performance, fidelizacion o consideracion, reflejala con criterio, pero solo si existe sustento.\n7) El brief debe sentirse como trabajo de una agencia muy buena: claro, util, especifico y con lectura del momento de negocio.\n\nReglas duras:\n1) No inventes montos, fechas, promociones, campañas, responsables, assets, aprobadores, lanzamientos ni distribuciones de presupuesto.\n2) Si un dato no existe con trazabilidad suficiente, escribe exactamente: "Pendiente de validar con cliente segun metadata_json y contexto actual."\n3) Si no hay lanzamiento, fecha clave o campaña confirmada, usa "-" solo en esos campos descriptivos; para datos operativos faltantes usa la frase de pendiente.\n4) Contrasta el BEC contra documentos, metadata e investigacion web cuando este disponible.\n5) Explicita que se mantiene del BEC y que debe ajustarse para este mes.\n6) En cada ajuste, cita evidencia documental, metadata o fuente web concreta si existe.\n7) Completa el formulario exactamente con las claves indicadas.\n8) No agregues claves nuevas ni cambies la estructura.\n9) No uses datos web no verificados como cifras, precios, promociones, fechas o claims duros.\n\nDevuelve SOLO JSON con esta estructura exacta:\n{"objectives":${JSON.stringify(objectivesTemplate)},"fields":${JSON.stringify(fieldsTemplate)},"strategicChanges":"si|no","cambios_sobre_bec":[{"tema":"","se_mantiene":"","se_ajusta":"","razon":"","evidencia":""}]}\n\nRegla de formato:\n- En objectives, marca true solo donde aplique y tenga sustento real.\n- En fields, completa texto accionable, especifico y estrategicamente util sin inventar datos.\n- strategicChanges debe ser "si" o "no".\n- En cambios_sobre_bec, registra ajustes con criterio, razon clara y evidencia concreta.`,
+      temperature: 0.3,
+    });
+  } catch (error) {
+    logGenerationFailure("brief-ai", error, {
+      empresaId,
+      agenciaId,
+      model: getActiveTextModelLabel(),
+    });
+    const code = classifyAiGenerationError(error);
+    return {
+      error:
+        code === "missing_groq_key"
+          ? "Falta GROQ_API_KEY en produccion. Agrega esa variable en Vercel y redeploya."
+          : "La generacion del brief con IA fallo. Revisa la configuracion de Groq en produccion.",
+    };
+  }
+
+  if (!generatedBrief.trim()) {
+    logGenerationFailure("brief-ai", "La IA devolvio una respuesta vacia", {
+      empresaId,
+      agenciaId,
+      model: getActiveTextModelLabel(),
+    });
+    return { error: "La IA respondio vacio al generar el brief." };
+  }
 
   let contenidoJson: Record<string, unknown> = makeDefaultBriefForm() as Record<
     string,
@@ -3031,17 +3124,23 @@ export async function generateBriefDraft(formData: FormData) {
     };
   }
 
-  const briefId = await upsertBrief(empresaId, normalizedPeriodo, "revision", contenidoJson);
-  await syncBriefEvaluation({
-    supabase,
-    agenciaId,
-    empresaId,
-    briefId,
-    periodo: normalizedPeriodo,
-    briefContent: contenidoJson,
-    briefStatus: "revision",
-    updatedAt: new Date().toISOString(),
-  });
+  let briefId = "";
+  try {
+    briefId = await upsertBrief(empresaId, normalizedPeriodo, "revision", contenidoJson);
+    await syncBriefEvaluation({
+      supabase,
+      agenciaId,
+      empresaId,
+      briefId,
+      periodo: normalizedPeriodo,
+      briefContent: contenidoJson,
+      briefStatus: "revision",
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    logGenerationFailure("brief-save", error, { empresaId, agenciaId });
+    return { error: "El brief se genero, pero no se pudo guardar en la base de datos." };
+  }
 
   revalidateEmpresaRoutes(empresaId);
   return { briefId };
@@ -3055,6 +3154,13 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
   const supportLinks = String(formData.get("support_links") ?? "").trim();
   const customPrompt = String(formData.get("custom_prompt") ?? "").trim();
   const redirectTo = String(formData.get("redirect_to") ?? "").trim();
+  const fallbackRedirectPath = empresaId
+    ? `/protected/empresas/${empresaId}/plan-trabajo`
+    : "/protected/empresas";
+  const successRedirectPath = normalizeInternalRedirectPath(redirectTo, fallbackRedirectPath);
+  const redirectWithGenerationError = (code: string): never => {
+    redirect(withSearchParam(successRedirectPath, "generation_error", code));
+  };
 
   if (!empresaId || !briefId) {
     return;
@@ -3062,7 +3168,15 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
 
   const { supabase, agenciaId } = await requireUserAgenciaContext();
 
-  const [{ data: empresa }, { data: brief }, { data: becActual }, { data: docsEmpresa }, { data: docsAgencia }, { data: prompts }, { data: agencia }] =
+  const [
+    empresaResult,
+    briefResult,
+    becResult,
+    docsEmpresaResult,
+    docsAgenciaResult,
+    promptsResult,
+    agenciaResult,
+  ] =
     await Promise.all([
       supabase
         .from("empresa")
@@ -3105,7 +3219,41 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
       supabase.from("agencia").select("id, nombre, slug").eq("id", agenciaId).maybeSingle(),
     ]);
 
+  const firstReadError =
+    empresaResult.error ??
+    briefResult.error ??
+    becResult.error ??
+    docsEmpresaResult.error ??
+    docsAgenciaResult.error ??
+    promptsResult.error ??
+    agenciaResult.error;
+
+  if (firstReadError) {
+    logGenerationFailure("plan-context", firstReadError, {
+      empresaId,
+      briefId,
+      agenciaId,
+    });
+    redirectWithGenerationError("context_read_failed");
+  }
+
+  const { data: empresa } = empresaResult;
+  const { data: brief } = briefResult;
+  const { data: becActual } = becResult;
+  const { data: docsEmpresa } = docsEmpresaResult;
+  const { data: docsAgencia } = docsAgenciaResult;
+  const { data: prompts } = promptsResult;
+  const { data: agencia } = agenciaResult;
+
   if (!empresa || !brief) {
+    logGenerationFailure("plan-context", "Empresa o brief no encontrado", {
+      empresaId,
+      briefId,
+      agenciaId,
+      hasEmpresa: Boolean(empresa),
+      hasBrief: Boolean(brief),
+    });
+    redirectWithGenerationError("missing_context");
     return;
   }
 
@@ -3163,37 +3311,68 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
       ...extractUrlsFromText(customPrompt),
     ]),
   ).slice(0, 8);
-  const [webResearchContext, referenceLinksContext] = await Promise.all([
-    getCompanyWebResearch(empresa),
-    getReferenceLinksWebResearch({
-      links: referenceLinks,
-      purpose: "generar un plan de trabajo mensual de marketing",
-      userContext: [customPrompt, supportText].filter(Boolean).join("\n\n"),
-      country: empresa.pais ?? undefined,
-    }),
-  ]);
-  assertWebResearchAvailable(webResearchContext, "el plan");
+  let webResearchContext = "";
+  let referenceLinksContext = "";
+  try {
+    [webResearchContext, referenceLinksContext] = await Promise.all([
+      getCompanyWebResearch(empresa),
+      getReferenceLinksWebResearch({
+        links: referenceLinks,
+        purpose: "generar un plan de trabajo mensual de marketing",
+        userContext: [customPrompt, supportText].filter(Boolean).join("\n\n"),
+        country: empresa.pais ?? undefined,
+      }),
+    ]);
+  } catch (error) {
+    logGenerationFailure("plan-web-research", error, {
+      empresaId,
+      briefId,
+      agenciaId,
+    });
+    webResearchContext = "Investigacion web no disponible: fallo inesperado durante la busqueda.";
+  }
 
-  const generatedPlan = await aiChat({
-    systemPrompt:
-      "Eres PM principal, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Tu trabajo es convertir BEC, brief, metadata_json, documentos ya cargados, apoyo manual e investigacion web en un plan especifico. No necesitas que el usuario suba archivos en esta generacion: usa el conocimiento documental disponible. Si una recomendacion no tiene base en esas fuentes, la descartas o la marcas como pendiente. No generes relleno generico.",
-    userPrompt: buildPlanTrabajoPrompt({
-      periodo: brief.periodo,
-      agencia: agencia ?? {},
-      empresa,
-      empresaMetadataContext,
-      becContext,
-      briefContext,
-      supportDocContext,
-      webResearchContext: [webResearchContext, referenceLinksContext].filter(Boolean).join("\n\n"),
-      empresaDocsContext,
-      agenciaDocsContext,
-      promptContext,
-      defaultPlanTrabajo,
-      creativeInstructions: customPrompt,
-    }),
-    temperature: 0.2,
-  });
+  let generatedPlan = "";
+  try {
+    generatedPlan = await aiChat({
+      systemPrompt:
+        "Eres PM principal, estratega senior de marketing, planner y director de contenido para una agencia premium. Respondes SOLO JSON valido y sin texto adicional. Tu trabajo es convertir BEC, brief, metadata_json, documentos ya cargados, apoyo manual e investigacion web cuando exista en un plan especifico. No necesitas que el usuario suba archivos en esta generacion: usa el conocimiento documental disponible. Si una recomendacion no tiene base en esas fuentes, la descartas o la marcas como pendiente. No generes relleno generico.",
+      userPrompt: buildPlanTrabajoPrompt({
+        periodo: brief.periodo,
+        agencia: agencia ?? {},
+        empresa,
+        empresaMetadataContext,
+        becContext,
+        briefContext,
+        supportDocContext,
+        webResearchContext: [webResearchContext, referenceLinksContext].filter(Boolean).join("\n\n"),
+        empresaDocsContext,
+        agenciaDocsContext,
+        promptContext,
+        defaultPlanTrabajo,
+        creativeInstructions: customPrompt,
+      }),
+      temperature: 0.2,
+    });
+  } catch (error) {
+    logGenerationFailure("plan-ai", error, {
+      empresaId,
+      briefId,
+      agenciaId,
+      model: getActiveTextModelLabel(),
+    });
+    redirectWithGenerationError(classifyAiGenerationError(error));
+  }
+
+  if (!generatedPlan.trim()) {
+    logGenerationFailure("plan-ai", "La IA devolvio una respuesta vacia", {
+      empresaId,
+      briefId,
+      agenciaId,
+      model: getActiveTextModelLabel(),
+    });
+    redirectWithGenerationError("empty_ai_response");
+  }
 
   let contentJson: Record<string, unknown> = { plan_trabajo: defaultPlanTrabajo };
   try {
@@ -3218,53 +3397,68 @@ export async function generatePlanTrabajoDraft(formData: FormData) {
     };
   }
 
-  const planArtifactId = await upsertPlanTrabajoArtifact({
-    empresaId,
-    agenciaId,
-    briefId: brief.id,
-    periodo: brief.periodo,
-    contenidoJson: contentJson,
-    customPrompt,
-    modelUsed: getActiveTextModelLabel(),
-    promptVersion: "plan_trabajo_v1",
-  });
+  try {
+    const planArtifactId = await upsertPlanTrabajoArtifact({
+      empresaId,
+      agenciaId,
+      briefId: brief.id,
+      periodo: brief.periodo,
+      contenidoJson: contentJson,
+      customPrompt,
+      modelUsed: getActiveTextModelLabel(),
+      promptVersion: "plan_trabajo_v1",
+    });
 
-  const planScores = buildPlanArtifactScores({
-    agenciaId,
-    empresaId,
-    artifactId: planArtifactId,
-    content: contentJson,
-    modelUsed: getActiveTextModelLabel(),
-    promptVersion: "plan_trabajo_v1",
-  });
-  const planScoreMap = Object.fromEntries(
-    planScores
-      .filter((row) => row.entity_level === "global")
-      .map((row) => [row.score_type, row.score_value]),
-  ) as Partial<Record<"confidence" | "data_quality" | "risk" | "priority", number>>;
-  const planWorkflow = buildPlanWorkflow({
-    content: contentJson,
-    status: "plan",
-    scores: planScoreMap,
-    previousWorkflow: null,
-  });
-  contentJson = attachWorkflow(contentJson, planWorkflow);
-  await supabase
-    .from("rag_artifacts")
-    .update({
-      content_json: contentJson,
-      status: planWorkflow.status,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", planArtifactId);
-  await replaceArtifactScores({
-    supabase,
-    artifactId: planArtifactId,
-    rows: planScores,
-  });
+    const planScores = buildPlanArtifactScores({
+      agenciaId,
+      empresaId,
+      artifactId: planArtifactId,
+      content: contentJson,
+      modelUsed: getActiveTextModelLabel(),
+      promptVersion: "plan_trabajo_v1",
+    });
+    const planScoreMap = Object.fromEntries(
+      planScores
+        .filter((row) => row.entity_level === "global")
+        .map((row) => [row.score_type, row.score_value]),
+    ) as Partial<Record<"confidence" | "data_quality" | "risk" | "priority", number>>;
+    const planWorkflow = buildPlanWorkflow({
+      content: contentJson,
+      status: "plan",
+      scores: planScoreMap,
+      previousWorkflow: null,
+    });
+    contentJson = attachWorkflow(contentJson, planWorkflow);
+    const { error: updateError } = await supabase
+      .from("rag_artifacts")
+      .update({
+        content_json: contentJson,
+        status: planWorkflow.status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", planArtifactId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    await replaceArtifactScores({
+      supabase,
+      artifactId: planArtifactId,
+      rows: planScores,
+    });
+  } catch (error) {
+    logGenerationFailure("plan-save", error, {
+      empresaId,
+      briefId,
+      agenciaId,
+      model: getActiveTextModelLabel(),
+    });
+    redirectWithGenerationError("save_failed");
+  }
 
   revalidateEmpresaRoutes(empresaId);
-  redirect(redirectTo || `/protected/empresas/${empresaId}/plan-trabajo`);
+  redirect(successRedirectPath);
 }
 
 export async function generateCalendarioDraft(formData: FormData) {
@@ -3274,6 +3468,12 @@ export async function generateCalendarioDraft(formData: FormData) {
   const customPrompt = String(formData.get("custom_prompt") ?? "").trim();
   const referenceLinksRaw = String(formData.get("reference_links") ?? "").trim();
   const alcanceFromForm = parseAlcanceCalendario(alcanceCalendarioRaw);
+  const fallbackRedirectPath = empresaId
+    ? `/protected/empresas/${empresaId}/calendario`
+    : "/protected/empresas";
+  const redirectWithGenerationError = (code: string): never => {
+    redirect(withSearchParam(fallbackRedirectPath, "generation_error", code));
+  };
 
   if (!empresaId || !planArtifactId) {
     return;
@@ -3281,7 +3481,7 @@ export async function generateCalendarioDraft(formData: FormData) {
 
   const { supabase, agenciaId } = await requireUserAgenciaContext();
 
-  const [{ data: empresa }, { data: plan }] =
+  const [empresaResult, planResult] =
     await Promise.all([
       supabase
         .from("empresa")
@@ -3299,7 +3499,27 @@ export async function generateCalendarioDraft(formData: FormData) {
         .maybeSingle(),
     ]);
 
+  if (empresaResult.error || planResult.error) {
+    logGenerationFailure("calendario-context", empresaResult.error ?? planResult.error, {
+      empresaId,
+      planArtifactId,
+      agenciaId,
+    });
+    redirectWithGenerationError("context_read_failed");
+  }
+
+  const { data: empresa } = empresaResult;
+  const { data: plan } = planResult;
+
   if (!empresa || !plan) {
+    logGenerationFailure("calendario-context", "Empresa o plan no encontrado", {
+      empresaId,
+      planArtifactId,
+      agenciaId,
+      hasEmpresa: Boolean(empresa),
+      hasPlan: Boolean(plan),
+    });
+    redirectWithGenerationError("missing_context");
     return;
   }
 
@@ -3388,32 +3608,63 @@ export async function generateCalendarioDraft(formData: FormData) {
       ...extractUrlsFromText(customPrompt),
     ]),
   ).slice(0, 8);
-  const [webResearchContext, referenceLinksContext] = await Promise.all([
-    getCompanyWebResearch(empresa),
-    getReferenceLinksWebResearch({
-      links: referenceLinks,
-      purpose: "generar un calendario editorial mensual desde un plan de trabajo",
-      userContext: customPrompt,
-      country: empresa.pais ?? undefined,
-    }),
-  ]);
-  assertWebResearchAvailable(webResearchContext, "el calendario de posts");
+  let webResearchContext = "";
+  let referenceLinksContext = "";
+  try {
+    [webResearchContext, referenceLinksContext] = await Promise.all([
+      getCompanyWebResearch(empresa),
+      getReferenceLinksWebResearch({
+        links: referenceLinks,
+        purpose: "generar un calendario editorial mensual desde un plan de trabajo",
+        userContext: customPrompt,
+        country: empresa.pais ?? undefined,
+      }),
+    ]);
+  } catch (error) {
+    logGenerationFailure("calendario-web-research", error, {
+      empresaId,
+      planArtifactId,
+      agenciaId,
+    });
+    webResearchContext = "Investigacion web no disponible: fallo inesperado durante la busqueda.";
+  }
 
-  const generatedCalendario = await aiChat({
-    systemPrompt:
-      "Eres content planner principal, director creativo y estratega de performance para una agencia premium. Respondes SOLO JSON valido sin markdown ni texto adicional. Tu salida debe sentirse senior, original, comercialmente aguda, editorialmente curada y lista para operar.",
-    userPrompt: buildCalendarioDraftPrompt({
-      periodo,
-      empresa,
-      empresaMetadataContext,
-      webResearchContext: [webResearchContext, referenceLinksContext].filter(Boolean).join("\n\n"),
-      planRoot,
-      alcanceCalendario: strictAlcanceCalendario,
-      defaultCalendario,
-      customPrompt,
-    }),
-    temperature: 0.35,
-  });
+  let generatedCalendario = "";
+  try {
+    generatedCalendario = await aiChat({
+      systemPrompt:
+        "Eres content planner principal, director creativo y estratega de performance para una agencia premium. Respondes SOLO JSON valido sin markdown ni texto adicional. Tu salida debe sentirse senior, original, comercialmente aguda, editorialmente curada y lista para operar.",
+      userPrompt: buildCalendarioDraftPrompt({
+        periodo,
+        empresa,
+        empresaMetadataContext,
+        webResearchContext: [webResearchContext, referenceLinksContext].filter(Boolean).join("\n\n"),
+        planRoot,
+        alcanceCalendario: strictAlcanceCalendario,
+        defaultCalendario,
+        customPrompt,
+      }),
+      temperature: 0.35,
+    });
+  } catch (error) {
+    logGenerationFailure("calendario-ai", error, {
+      empresaId,
+      planArtifactId,
+      agenciaId,
+      model: getActiveTextModelLabel(),
+    });
+    redirectWithGenerationError(classifyAiGenerationError(error));
+  }
+
+  if (!generatedCalendario.trim()) {
+    logGenerationFailure("calendario-ai", "La IA devolvio una respuesta vacia", {
+      empresaId,
+      planArtifactId,
+      agenciaId,
+      model: getActiveTextModelLabel(),
+    });
+    redirectWithGenerationError("empty_ai_response");
+  }
 
   let contentJson: Record<string, unknown> = defaultCalendario as unknown as Record<string, unknown>;
   try {
@@ -3432,53 +3683,68 @@ export async function generateCalendarioDraft(formData: FormData) {
     defaultCalendario,
   ) as unknown as Record<string, unknown>;
 
-  const calendarioArtifactId = await upsertCalendarioArtifact({
-    empresaId,
-    agenciaId,
-    planArtifactId: plan.id,
-    periodo,
-    contenidoJson: contentJson,
-    alcanceCalendario: strictAlcanceCalendario,
-    modelUsed: getActiveTextModelLabel(),
-    promptVersion: "calendario_v1",
-  });
+  try {
+    const calendarioArtifactId = await upsertCalendarioArtifact({
+      empresaId,
+      agenciaId,
+      planArtifactId: plan.id,
+      periodo,
+      contenidoJson: contentJson,
+      alcanceCalendario: strictAlcanceCalendario,
+      modelUsed: getActiveTextModelLabel(),
+      promptVersion: "calendario_v1",
+    });
 
-  const calendarioScores = buildCalendarioArtifactScores({
-    agenciaId,
-    empresaId,
-    artifactId: calendarioArtifactId,
-    content: contentJson,
-    modelUsed: getActiveTextModelLabel(),
-    promptVersion: "calendario_v1",
-  });
-  const calendarioScoreMap = Object.fromEntries(
-    calendarioScores
-      .filter((row) => row.entity_level === "global")
-      .map((row) => [row.score_type, row.score_value]),
-  ) as Partial<Record<"confidence" | "data_quality" | "risk" | "priority", number>>;
-  const calendarioWorkflow = buildCalendarioWorkflow({
-    content: contentJson,
-    status: "plan",
-    scores: calendarioScoreMap,
-    metadata: empresaMetadata,
-    previousWorkflow: null,
-  });
-  contentJson = attachWorkflow(contentJson, calendarioWorkflow);
-  await supabase
-    .from("rag_artifacts")
-    .update({
-      content_json: contentJson,
-      status: calendarioWorkflow.status,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", calendarioArtifactId);
-  await replaceArtifactScores({
-    supabase,
-    artifactId: calendarioArtifactId,
-    rows: calendarioScores,
-  });
+    const calendarioScores = buildCalendarioArtifactScores({
+      agenciaId,
+      empresaId,
+      artifactId: calendarioArtifactId,
+      content: contentJson,
+      modelUsed: getActiveTextModelLabel(),
+      promptVersion: "calendario_v1",
+    });
+    const calendarioScoreMap = Object.fromEntries(
+      calendarioScores
+        .filter((row) => row.entity_level === "global")
+        .map((row) => [row.score_type, row.score_value]),
+    ) as Partial<Record<"confidence" | "data_quality" | "risk" | "priority", number>>;
+    const calendarioWorkflow = buildCalendarioWorkflow({
+      content: contentJson,
+      status: "plan",
+      scores: calendarioScoreMap,
+      metadata: empresaMetadata,
+      previousWorkflow: null,
+    });
+    contentJson = attachWorkflow(contentJson, calendarioWorkflow);
+    const { error: updateError } = await supabase
+      .from("rag_artifacts")
+      .update({
+        content_json: contentJson,
+        status: calendarioWorkflow.status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", calendarioArtifactId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    await replaceArtifactScores({
+      supabase,
+      artifactId: calendarioArtifactId,
+      rows: calendarioScores,
+    });
+  } catch (error) {
+    logGenerationFailure("calendario-save", error, {
+      empresaId,
+      planArtifactId,
+      agenciaId,
+      model: getActiveTextModelLabel(),
+    });
+    redirectWithGenerationError("save_failed");
+  }
 
   revalidateEmpresaRoutes(empresaId);
-  redirect(`/protected/empresas/${empresaId}/calendario`);
+  redirect(fallbackRedirectPath);
 }
 

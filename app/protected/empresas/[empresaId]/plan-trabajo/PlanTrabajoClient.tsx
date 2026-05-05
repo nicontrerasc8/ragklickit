@@ -31,6 +31,7 @@ type Props = {
   empresaNombre: string;
   briefs: BriefItem[];
   planes: PlanItem[];
+  generationError?: string;
 };
 
 const monthFmt = new Intl.DateTimeFormat("es-PE", {
@@ -60,6 +61,16 @@ const STATUS_MAP: Record<string, string> = {
   needs_review: "text-amber-300 bg-amber-300/10 border-amber-300/20",
   blocked: "text-red-300 bg-red-300/10 border-red-300/20",
   exception: "text-fuchsia-300 bg-fuchsia-300/10 border-fuchsia-300/20",
+};
+
+const GENERATION_ERROR_MESSAGES: Record<string, string> = {
+  context_read_failed: "No se pudo leer todo el contexto necesario para generar el plan. Revisa la empresa, el brief y los documentos cargados.",
+  missing_context: "No se encontro la empresa o el brief seleccionado para generar este plan.",
+  missing_groq_key: "Falta GROQ_API_KEY en produccion. Agrega esa variable en Vercel y redeploya para generar con Groq.",
+  missing_ai_key: "Falta la API key del proveedor de IA configurado en produccion.",
+  ai_generation_failed: "La generacion con IA fallo. Si esto ocurre en produccion, revisa que Vercel tenga GROQ_API_KEY, AI_PROVIDER=groq y GROQ_CHAT_MODEL configurados.",
+  empty_ai_response: "La IA respondio vacio. Intenta nuevamente o cambia el brief/base de apoyo.",
+  save_failed: "El plan se genero, pero no se pudo guardar en la base de datos.",
 };
 
 function statusCls(s: string) {
@@ -138,10 +149,13 @@ function PlanLinkButton({
   );
 }
 
-export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, planes }: Props) {
+export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, planes, generationError }: Props) {
   const [selectedBrief, setSelectedBrief] = useState(briefs[0]?.id ?? "");
   const [creativePrompt, setCreativePrompt] = useState("");
   const selectedBriefItem = briefs.find((brief) => brief.id === selectedBrief) ?? briefs[0] ?? null;
+  const generationErrorMessage = generationError
+    ? GENERATION_ERROR_MESSAGES[generationError] ?? "No se pudo generar el plan. Revisa la configuracion de IA y vuelve a intentar."
+    : "";
 
   return (
     <>
@@ -235,6 +249,12 @@ export default function PlanTrabajoClient({ empresaId, empresaNombre, briefs, pl
             <p className="mb-4 text-[12px] text-white/35 leading-relaxed pl-4.5">
               La IA usara documentos ya cargados de empresa/agencia, BEC, el BRIEF seleccionado, apoyo opcional e investigacion web. No necesitas subir archivos nuevos.
             </p>
+
+            {generationErrorMessage ? (
+              <div className="mb-4 rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-[12px] leading-relaxed text-red-100/80">
+                {generationErrorMessage}
+              </div>
+            ) : null}
 
             {briefs.length > 0 ? (
               <form action={generatePlanTrabajoDraft} className="space-y-3">

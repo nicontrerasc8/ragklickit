@@ -4,11 +4,16 @@
 
 ▲ Next.js 16.1.6 (Turbopack, Cache Components)
 - Local:         http://localhost:3001
-- Network:       http://192.168.1.12:3001
+- Network:       http://192.168.1.3:3001
 - Environments: .env.local
 - Experiments (use with caution):
   · serverActions
 
 ✓ Starting...
-  Suggestion: If you intended to restart next dev, terminate the other process, and then try again.
-[?25h
+Creating turbopack project {
+  dir: 'C:\\Users\\Nico\\Documents\\Programacion\\ragklickit',
+  testMode: true
+}
+✓ Ready in 3.2s
+○ Compiling /auth/login ...
+ GET /auth/login 200 in 7.9s (compile: 7.4s, proxy.ts: 9ms, render: 430ms)

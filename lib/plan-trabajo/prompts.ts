@@ -98,7 +98,7 @@ export function buildPlanTrabajoPrompt(params: {
     "",
     "INVESTIGACION WEB DE EMPRESA:",
     params.webResearchContext || "Sin investigacion web disponible",
-    "La investigacion web no es contexto, es fuente de verdad. Usala para encontrar el lenguaje real que usa la competencia en Peru y las quejas comunes de los usuarios. Refleja estos hallazgos en mensajes_destacados, en las observaciones del resumen y en el resto de secciones donde cambie decisiones del mes.",
+    "Cuando exista investigacion web util, usala para encontrar el lenguaje real que usa la competencia en Peru y las quejas comunes de los usuarios. Refleja esos hallazgos en mensajes_destacados, en las observaciones del resumen y en el resto de secciones donde cambie decisiones del mes. Si no esta disponible, no la inventes y trabaja con fuentes internas.",
     "",
     "CONOCIMIENTO DE EMPRESA YA CARGADO:",
     params.empresaDocsContext || "Sin documentos de empresa cargados",

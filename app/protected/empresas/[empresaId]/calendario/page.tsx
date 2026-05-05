@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 
 type CalendarioPageProps = {
   params: Promise<{ empresaId: string }>;
+  searchParams?: Promise<{ generation_error?: string }>;
 };
 
 function alcanceToPromptText(value: unknown) {
@@ -25,8 +26,9 @@ function alcanceToPromptText(value: unknown) {
     .join("\n");
 }
 
-export default async function EmpresaCalendarioPage({ params }: CalendarioPageProps) {
+export default async function EmpresaCalendarioPage({ params, searchParams }: CalendarioPageProps) {
   const { empresaId } = await params;
+  const generationError = (await searchParams)?.generation_error ?? "";
   const supabase = await createClient();
   const {
     data: { user },
@@ -83,6 +85,7 @@ export default async function EmpresaCalendarioPage({ params }: CalendarioPagePr
       alcanceCalendario={alcanceCalendario}
       planes={(planes ?? []) as PlanArtifact[]}
       calendarios={(calendarios ?? []) as CalendarioArtifact[]}
+      generationError={generationError}
     />
   );
 }

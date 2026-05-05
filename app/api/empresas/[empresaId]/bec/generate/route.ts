@@ -59,6 +59,17 @@ function applyStrategicObjectiveFallbacks(
   }
 }
 
+function aiErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("GROQ_API_KEY")) {
+    return "Falta GROQ_API_KEY en produccion. Agrega esa variable en Vercel y redeploya.";
+  }
+  if (message.includes("OPENAI_API_KEY") || message.includes("GEMINI_API_KEY")) {
+    return "Falta la API key del proveedor de IA configurado.";
+  }
+  return "La generacion con IA fallo. Revisa la configuracion de Groq en produccion.";
+}
+
 export async function POST(request: Request, { params }: Params) {
   const { empresaId } = await params;
   const supabase = await createClient();
@@ -165,24 +176,34 @@ export async function POST(request: Request, { params }: Params) {
     ]),
   ).slice(0, 8);
 
-  const [webResearchContext, referenceLinksContext] = await Promise.all([
-    getCompanyWebResearch({
-      ...empresa,
-      marca: company.marca,
-    }),
-    getReferenceLinksWebResearch({
-      links: referenceLinks,
-      purpose: "generar o regenerar el BEC estrategico de la empresa",
-      userContext: [
-        body.prompt,
-        company.objetivo ? `Objetivo: ${company.objetivo}` : "",
-        company.problema ? `Problema: ${company.problema}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      country: company.pais,
-    }),
-  ]);
+  let webResearchContext = "";
+  let referenceLinksContext = "";
+  try {
+    [webResearchContext, referenceLinksContext] = await Promise.all([
+      getCompanyWebResearch({
+        ...empresa,
+        marca: company.marca,
+      }),
+      getReferenceLinksWebResearch({
+        links: referenceLinks,
+        purpose: "generar o regenerar el BEC estrategico de la empresa",
+        userContext: [
+          body.prompt,
+          company.objetivo ? `Objetivo: ${company.objetivo}` : "",
+          company.problema ? `Problema: ${company.problema}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        country: company.pais,
+      }),
+    ]);
+  } catch (error) {
+    console.error("[generation:bec-web-research] failed", {
+      empresaId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    webResearchContext = "Investigacion web no disponible: fallo inesperado durante la busqueda.";
+  }
 
   const docContext = [
     "INVESTIGACION WEB DE EMPRESA:",
@@ -225,11 +246,28 @@ export async function POST(request: Request, { params }: Params) {
     'Regla adicional: "Métrica de Éxito / ROI Esperado" debe definirse segun el "KPI Primario" y no como porcentaje por defecto, salvo que la evidencia lo exija explicitamente.',
   ].join("\n\n");
 
-  const answer = await aiChat({
-    systemPrompt: strictMetricRule,
-    userPrompt: prompt,
-    temperature: 0.25,
-  });
+  let answer = "";
+  try {
+    answer = await aiChat({
+      systemPrompt: strictMetricRule,
+      userPrompt: prompt,
+      temperature: 0.25,
+    });
+  } catch (error) {
+    console.error("[generation:bec-ai] failed", {
+      empresaId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ error: aiErrorMessage(error) }, { status: 200 });
+  }
+
+  if (!answer.trim()) {
+    console.error("[generation:bec-ai] failed", {
+      empresaId,
+      error: "La IA devolvio una respuesta vacia",
+    });
+    return NextResponse.json({ error: "La IA respondio vacio al generar el BEC." }, { status: 200 });
+  }
 
   const generated = mapAnswerToBec(answer, current);
   applyStrategicObjectiveFallbacks(generated.fields, company);

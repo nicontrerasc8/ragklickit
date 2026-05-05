@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { regenerateCalendarioItem } from "@/lib/calendario/regeneration";
 import { normalizeCalendarioContent } from "@/lib/calendario/schema";
-import { assertWebResearchAvailable, getCompanyWebResearch } from "@/lib/company-web-research";
+import { getCompanyWebResearch } from "@/lib/company-web-research";
 import { createClient } from "@/lib/supabase/server";
 
 type Params = {
@@ -67,8 +67,18 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
-    const webResearchContext = await getCompanyWebResearch(empresa);
-    assertWebResearchAvailable(webResearchContext, "el post");
+    let webResearchContext = "";
+    try {
+      webResearchContext = await getCompanyWebResearch(empresa);
+    } catch (error) {
+      console.error("[generation:calendario-item-web-research] failed", {
+        empresaId,
+        calendarioId,
+        itemId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      webResearchContext = "Investigacion web no disponible: fallo inesperado durante la busqueda.";
+    }
 
     const enrichedPrompt = [
       prompt,
@@ -91,7 +101,7 @@ export async function POST(request: Request, { params }: Params) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "No se pudo regenerar el item." },
-      { status: 500 },
+      { status: 200 },
     );
   }
 }

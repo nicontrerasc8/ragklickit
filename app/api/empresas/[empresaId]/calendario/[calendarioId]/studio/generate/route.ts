@@ -6,7 +6,6 @@ import {
   generateCalendarioItemBundle,
 } from "@/lib/calendario/content-studio";
 import {
-  assertWebResearchAvailable,
   extractUrlsFromText,
   getCompanyWebResearch,
   getContentStudioWebResearch,
@@ -112,26 +111,39 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
-    const [webResearchContext, referenceLinkContext] = await Promise.all([
-      getCompanyWebResearch(empresa),
-      getReferenceLinksWebResearch({
-        links: referenceLinks,
-        purpose: "generar un bundle de contenido para un item de calendario editorial",
-        userContext: [generationInstructions, referenceInfo].filter(Boolean).join("\n\n"),
-        country: empresa.pais ?? undefined,
-        maxLinks: 12,
-      }),
-    ]);
-    const contentStudioWebResearch = await getContentStudioWebResearch({
-      company: empresa,
-      item,
-      calendarioTitulo: calendario.title || "Calendario editorial",
-      periodo: normalized.periodo,
-      generationInstructions,
-      referenceInfo,
-      referenceLinks,
-      referenceLinkContext,
-    });
+    let webResearchContext = "";
+    let referenceLinkContext = "";
+    let contentStudioWebResearch = "";
+    try {
+      [webResearchContext, referenceLinkContext] = await Promise.all([
+        getCompanyWebResearch(empresa),
+        getReferenceLinksWebResearch({
+          links: referenceLinks,
+          purpose: "generar un bundle de contenido para un item de calendario editorial",
+          userContext: [generationInstructions, referenceInfo].filter(Boolean).join("\n\n"),
+          country: empresa.pais ?? undefined,
+          maxLinks: 12,
+        }),
+      ]);
+      contentStudioWebResearch = await getContentStudioWebResearch({
+        company: empresa,
+        item,
+        calendarioTitulo: calendario.title || "Calendario editorial",
+        periodo: normalized.periodo,
+        generationInstructions,
+        referenceInfo,
+        referenceLinks,
+        referenceLinkContext,
+      });
+    } catch (error) {
+      console.error("[generation:content-studio-web-research] failed", {
+        empresaId,
+        calendarioId,
+        itemId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      webResearchContext = "Investigacion web no disponible: fallo inesperado durante la busqueda.";
+    }
     const primaryReferenceLinksContext =
       referenceLinks.length > 0
         ? [
@@ -152,7 +164,6 @@ export async function POST(request: Request, { params }: Params) {
       .filter(Boolean)
       .join("\n\n")
       .slice(0, 30000);
-    assertWebResearchAvailable(combinedWebResearchContext, "el post");
 
     const bundle = await generateCalendarioItemBundle({
       empresaNombre: empresa.nombre,
@@ -175,7 +186,7 @@ export async function POST(request: Request, { params }: Params) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "No se pudo generar el bundle." },
-      { status: 500 },
+      { status: 200 },
     );
   }
 }

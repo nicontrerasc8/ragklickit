@@ -377,6 +377,10 @@ export default function BriefEditor({
               setAiError("");
               try {
                 const result = await generateBriefDraft(fd);
+                if (result?.error) {
+                  setAiError(result.error);
+                  return;
+                }
                 if (result?.briefId) {
                   router.push(`/protected/empresas/${empresaId}/briefs/${result.briefId}`);
                   router.refresh();

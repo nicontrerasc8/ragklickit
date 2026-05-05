@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { regenerateCalendarioContent } from "@/lib/calendario/regeneration";
-import { assertWebResearchAvailable, getCompanyWebResearch } from "@/lib/company-web-research";
+import { getCompanyWebResearch } from "@/lib/company-web-research";
 import { createClient } from "@/lib/supabase/server";
 
 type Params = {
@@ -53,8 +53,17 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
-    const webResearchContext = await getCompanyWebResearch(empresa);
-    assertWebResearchAvailable(webResearchContext, "el calendario de posts");
+    let webResearchContext = "";
+    try {
+      webResearchContext = await getCompanyWebResearch(empresa);
+    } catch (error) {
+      console.error("[generation:calendario-regenerate-web-research] failed", {
+        empresaId,
+        calendarioId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      webResearchContext = "Investigacion web no disponible: fallo inesperado durante la busqueda.";
+    }
 
     const enrichedPrompt = [
       prompt,
@@ -76,7 +85,7 @@ export async function POST(request: Request, { params }: Params) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "No se pudo regenerar el calendario." },
-      { status: 500 },
+      { status: 200 },
     );
   }
 }
